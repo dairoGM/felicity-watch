@@ -5,6 +5,8 @@ import com.dairoroberto.felicitywatch.data.remote.FelicityApiClient
 import com.dairoroberto.felicitywatch.data.remote.FelicitySnapshotMapper
 import com.dairoroberto.felicitywatch.data.remote.dto.DeviceDto
 import com.dairoroberto.felicitywatch.domain.model.BatteryReading
+import com.dairoroberto.felicitywatch.domain.model.DeviceInfo
+import com.dairoroberto.felicitywatch.domain.model.DeviceRole
 import com.dairoroberto.felicitywatch.domain.model.InverterReading
 import java.time.Instant
 import javax.inject.Inject
@@ -70,6 +72,32 @@ class FelicityRepository @Inject constructor(
         }
 
         return SystemReading(inverterReading, batteryReading)
+    }
+
+    /** Para la vista "Dispositivos": inversor y batería vinculados a la cuenta, con su serial. */
+    suspend fun fetchDevices(): List<DeviceInfo> {
+        val username = credentialsStore.fsolarUsername
+        val password = credentialsStore.fsolarPassword
+        if (username.isNullOrBlank() || password.isNullOrBlank()) {
+            throw FelicityCredentialsMissingException()
+        }
+
+        return apiClient.listDevices(username, password).extractDeviceList().mapNotNull { dto ->
+            val sn = dto.deviceSn ?: return@mapNotNull null
+            val role = when (dto.deviceType?.uppercase()) {
+                DeviceDto.TYPE_INVERTER -> DeviceRole.INVERTER
+                DeviceDto.TYPE_BATTERY -> DeviceRole.BATTERY
+                else -> DeviceRole.OTHER
+            }
+            DeviceInfo(
+                serialNumber = sn,
+                role = role,
+                model = dto.deviceModel,
+                alias = dto.alias,
+                status = dto.status,
+                plantName = dto.plantName
+            )
+        }
     }
 
     fun resetDeviceCache() {

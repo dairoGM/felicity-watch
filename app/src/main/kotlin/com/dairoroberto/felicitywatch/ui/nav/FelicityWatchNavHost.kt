@@ -3,6 +3,7 @@ package com.dairoroberto.felicitywatch.ui.nav
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.History
+import androidx.compose.material.icons.filled.Memory
 import androidx.compose.material.icons.filled.NotificationsActive
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.SpaceDashboard
@@ -26,6 +27,7 @@ import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
 import com.dairoroberto.felicitywatch.ui.alerts.AlertsScreen
 import com.dairoroberto.felicitywatch.ui.dashboard.DashboardScreen
+import com.dairoroberto.felicitywatch.ui.devices.DevicesScreen
 import com.dairoroberto.felicitywatch.ui.history.HistoryScreen
 import com.dairoroberto.felicitywatch.ui.onboarding.OnboardingScreen
 import com.dairoroberto.felicitywatch.ui.settings.SettingsScreen
@@ -34,6 +36,7 @@ import com.dairoroberto.felicitywatch.ui.theme.ThemeViewModel
 private sealed class MainDestination(val route: String, val label: String, val icon: ImageVector) {
     data object Dashboard : MainDestination("dashboard", "Panel", Icons.Default.SpaceDashboard)
     data object Alerts : MainDestination("alerts", "Alertas", Icons.Default.NotificationsActive)
+    data object Devices : MainDestination("devices", "Equipos", Icons.Default.Memory)
     data object History : MainDestination("history", "Historial", Icons.Default.History)
     data object Settings : MainDestination("settings", "Ajustes", Icons.Default.Settings)
 }
@@ -41,6 +44,7 @@ private sealed class MainDestination(val route: String, val label: String, val i
 private val bottomDestinations = listOf(
     MainDestination.Dashboard,
     MainDestination.Alerts,
+    MainDestination.Devices,
     MainDestination.History,
     MainDestination.Settings
 )
@@ -94,6 +98,7 @@ fun FelicityWatchNavHost(
         ) {
             composable(MainDestination.Dashboard.route) { DashboardScreen() }
             composable(MainDestination.Alerts.route) { AlertsScreen() }
+            composable(MainDestination.Devices.route) { DevicesScreen() }
             composable(MainDestination.History.route) { HistoryScreen() }
             composable(MainDestination.Settings.route) {
                 SettingsScreen(
