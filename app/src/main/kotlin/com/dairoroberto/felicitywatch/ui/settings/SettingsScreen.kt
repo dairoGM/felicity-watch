@@ -10,27 +10,30 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Chat
+import androidx.compose.material.icons.filled.CloudSync
 import androidx.compose.material.icons.filled.DarkMode
 import androidx.compose.material.icons.filled.DeleteForever
 import androidx.compose.material.icons.filled.Logout
 import androidx.compose.material.icons.filled.Notifications
 import androidx.compose.material.icons.filled.RecordVoiceOver
 import androidx.compose.material.icons.filled.Refresh
-import androidx.compose.material.icons.filled.Chat
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Scaffold
-import androidx.compose.material3.Snackbar
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Switch
@@ -49,6 +52,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import com.dairoroberto.felicitywatch.ui.components.ApiKeyField
+import com.dairoroberto.felicitywatch.ui.components.ElegantSnackbar
 import com.dairoroberto.felicitywatch.ui.components.EmailField
 import com.dairoroberto.felicitywatch.ui.components.PasswordField
 import com.dairoroberto.felicitywatch.ui.components.PhoneField
@@ -66,6 +70,7 @@ fun SettingsScreen(
     val context = LocalContext.current
     val formState by viewModel.formState.collectAsState()
     val serviceRunning by viewModel.serviceRunning.collectAsState()
+    val isTestingConnection by viewModel.isTestingConnection.collectAsState()
     var batteryExcluded by remember { mutableStateOf(isIgnoringBatteryOptimizations(context)) }
     var showLogoutConfirm by remember { mutableStateOf(false) }
     var showFactoryResetConfirm by remember { mutableStateOf(false) }
@@ -110,12 +115,13 @@ fun SettingsScreen(
     }
 
     Scaffold(
-        snackbarHost = { SnackbarHost(snackbarHostState) { Snackbar(it) } }
+        snackbarHost = { SnackbarHost(snackbarHostState) { ElegantSnackbar(it) } }
     ) { scaffoldPadding ->
         LazyColumn(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(scaffoldPadding),
+                .padding(scaffoldPadding)
+                .imePadding(),
             contentPadding = PaddingValues(16.dp),
             verticalArrangement = Arrangement.spacedBy(14.dp)
         ) {
@@ -143,9 +149,32 @@ fun SettingsScreen(
                         label = "API key de CallMeBot",
                         modifier = Modifier.padding(top = 10.dp)
                     )
-                    Row(modifier = Modifier.padding(top = 12.dp), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                        Button(onClick = { viewModel.saveWhatsappConfig() }) { Text("Guardar WhatsApp") }
-                        OutlinedButton(onClick = { viewModel.testWhatsappChannel() }) { Text("Probar") }
+                    Button(
+                        onClick = { viewModel.saveWhatsappConfig() },
+                        modifier = Modifier.padding(top = 12.dp)
+                    ) { Text("Guardar WhatsApp") }
+                }
+            }
+
+            item {
+                SectionCard(title = "Conexión con Felicity") {
+                    Text(
+                        "Verifica el acceso a tu cuenta FSolar y trae la primera lectura de PV y batería para el Panel.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = LocalFelicityColors.current.textMid
+                    )
+                    Button(
+                        onClick = { viewModel.testConnection() },
+                        enabled = !isTestingConnection,
+                        modifier = Modifier.padding(top = 10.dp)
+                    ) {
+                        if (isTestingConnection) {
+                            CircularProgressIndicator(modifier = Modifier.size(16.dp), strokeWidth = 2.dp)
+                            Text("  Probando…")
+                        } else {
+                            Icon(Icons.Default.CloudSync, contentDescription = null, modifier = Modifier.size(18.dp))
+                            Text("  Probar conexión / primera lectura")
+                        }
                     }
                 }
             }

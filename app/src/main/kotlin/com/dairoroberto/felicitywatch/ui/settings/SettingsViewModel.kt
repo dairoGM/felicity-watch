@@ -8,6 +8,8 @@ import com.dairoroberto.felicitywatch.data.local.CredentialsStore
 import com.dairoroberto.felicitywatch.data.repository.AlertEventRepository
 import com.dairoroberto.felicitywatch.data.repository.AlertRuleRepository
 import com.dairoroberto.felicitywatch.data.repository.FelicityRepository
+import com.dairoroberto.felicitywatch.domain.usecase.RunMonitoringCycleUseCase
+import com.dairoroberto.felicitywatch.domain.usecase.describeMonitoringError
 import com.dairoroberto.felicitywatch.notification.NotificationChannels
 import com.dairoroberto.felicitywatch.notification.PushNotifier
 import com.dairoroberto.felicitywatch.notification.VoiceAlertPlayer
@@ -42,11 +44,15 @@ class SettingsViewModel @Inject constructor(
     private val voicePlayer: VoiceAlertPlayer,
     private val pushNotifier: PushNotifier,
     private val whatsappSender: WhatsappAlertSender,
+    private val runMonitoringCycleUseCase: RunMonitoringCycleUseCase,
     stateHolder: MonitoringStateHolder,
     @ApplicationContext private val context: Context
 ) : ViewModel() {
 
     val serviceRunning: StateFlow<Boolean> = stateHolder.serviceRunning
+
+    private val _isTestingConnection = MutableStateFlow(false)
+    val isTestingConnection: StateFlow<Boolean> = _isTestingConnection
 
     private val _formState = MutableStateFlow(
         SettingsUiState(
@@ -93,6 +99,22 @@ class SettingsViewModel @Inject constructor(
     fun restartService() {
         MonitoringServiceController.start(context)
         emit("Servicio de vigilancia reiniciado")
+    }
+
+    /** "Probar conexión / realizar primera lectura", igual que un canal más. */
+    fun testConnection() {
+        if (_isTestingConnection.value) return
+        viewModelScope.launch {
+            _isTestingConnection.value = true
+            try {
+                runMonitoringCycleUseCase.run()
+                emit("Lectura exitosa: ya se puede ver PV y batería en el Panel")
+            } catch (e: Exception) {
+                emit("Falló la lectura: ${describeMonitoringError(e)}")
+            } finally {
+                _isTestingConnection.value = false
+            }
+        }
     }
 
     fun testVoiceChannel() {

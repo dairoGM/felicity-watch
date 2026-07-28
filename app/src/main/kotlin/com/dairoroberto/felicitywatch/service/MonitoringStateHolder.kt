@@ -70,8 +70,14 @@ class MonitoringStateHolder @Inject constructor() {
         _serviceRunning.value = running
     }
 
-    fun reportFailure(message: String?, failureCount: Int) {
+    /**
+     * Registra un fallo de lectura, sea del ciclo automático del servicio o
+     * de una lectura manual (Panel/Ajustes) — cualquier llamador incrementa
+     * el mismo contador compartido, que [updateReadings] resetea a 0 en el
+     * próximo éxito, venga de donde venga.
+     */
+    fun reportFailure(message: String?) {
         _lastErrorMessage.value = message
-        _consecutiveFailures.value = failureCount
+        _consecutiveFailures.value = _consecutiveFailures.value + 1
     }
 }

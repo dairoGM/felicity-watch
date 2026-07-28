@@ -24,7 +24,7 @@ abstract class AppDatabase : RoomDatabase() {
             AlertRuleEntity(
                 type = AlertRuleType.GRID_OFFLINE,
                 enabled = true,
-                thresholdValue = null,
+                thresholdValue = 1.0,
                 comparisonOperator = null,
                 debounceSeconds = 60,
                 channelVoiceEnabled = true,
@@ -35,7 +35,7 @@ abstract class AppDatabase : RoomDatabase() {
             AlertRuleEntity(
                 type = AlertRuleType.GRID_ONLINE,
                 enabled = true,
-                thresholdValue = null,
+                thresholdValue = 1.0,
                 comparisonOperator = null,
                 debounceSeconds = 60,
                 channelVoiceEnabled = true,

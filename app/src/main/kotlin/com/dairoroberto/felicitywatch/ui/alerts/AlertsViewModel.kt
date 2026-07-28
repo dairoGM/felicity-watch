@@ -27,6 +27,8 @@ class AlertsViewModel @Inject constructor(
 
     fun updateThreshold(rule: AlertRuleEntity, threshold: Double?) = update(rule.copy(thresholdValue = threshold))
 
+    fun updateDebounceSeconds(rule: AlertRuleEntity, seconds: Int) = update(rule.copy(debounceSeconds = seconds))
+
     fun updateMessage(rule: AlertRuleEntity, message: String) = update(rule.copy(messageTemplate = message))
 
     fun toggleVoiceChannel(rule: AlertRuleEntity) = update(rule.copy(channelVoiceEnabled = !rule.channelVoiceEnabled))

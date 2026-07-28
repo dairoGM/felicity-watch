@@ -16,9 +16,11 @@ class ThemeViewModel @Inject constructor(
     private val appPreferences: AppPreferences
 ) : ViewModel() {
 
+    // Claro por defecto: identidad visual clara y elegante (estilo FSolar),
+    // el oscuro queda disponible como preferencia opcional en Ajustes.
     val darkModeEnabled: StateFlow<Boolean> = appPreferences.darkModeEnabled
-        .map { it ?: true }
-        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), true)
+        .map { it ?: false }
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), false)
 
     fun setDarkMode(enabled: Boolean) {
         viewModelScope.launch { appPreferences.setDarkModeEnabled(enabled) }

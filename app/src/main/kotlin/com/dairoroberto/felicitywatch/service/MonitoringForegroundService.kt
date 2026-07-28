@@ -6,17 +6,10 @@ import android.app.Service
 import android.content.Intent
 import android.os.IBinder
 import androidx.core.app.NotificationCompat
-import com.dairoroberto.felicitywatch.data.local.AppPreferences
 import com.dairoroberto.felicitywatch.data.local.CredentialsStore
-import com.dairoroberto.felicitywatch.data.remote.FelicityApiException
-import com.dairoroberto.felicitywatch.data.remote.FelicityAuthException
-import com.dairoroberto.felicitywatch.data.repository.AlertRuleRepository
-import com.dairoroberto.felicitywatch.data.repository.FelicityCredentialsMissingException
-import com.dairoroberto.felicitywatch.data.repository.FelicityRepository
-import com.dairoroberto.felicitywatch.domain.usecase.DispatchAlertUseCase
-import com.dairoroberto.felicitywatch.domain.usecase.EvaluateAlertRulesUseCase
+import com.dairoroberto.felicitywatch.domain.usecase.RunMonitoringCycleUseCase
+import com.dairoroberto.felicitywatch.domain.usecase.describeMonitoringError
 import com.dairoroberto.felicitywatch.notification.NotificationChannels
-import com.dairoroberto.felicitywatch.domain.model.GridState
 import com.dairoroberto.felicitywatch.ui.MainActivity
 import dagger.hilt.android.AndroidEntryPoint
 import kotlinx.coroutines.CoroutineScope
@@ -25,7 +18,7 @@ import kotlinx.coroutines.Job
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
-import java.io.IOException
+import java.time.Duration
 import java.time.Instant
 import javax.inject.Inject
 
@@ -34,22 +27,21 @@ import javax.inject.Inject
  * en background agresivamente (Xiaomi/MIUI confirmado como entorno real del
  * usuario); esta es la única forma confiable de garantizar polling continuo
  * cada 30s. WorkManager actúa como respaldo (ver [ServiceWatchdogWorker]).
+ *
+ * El ciclo de lectura en sí vive en [RunMonitoringCycleUseCase], compartido
+ * con las lecturas manuales (Panel/Ajustes); este servicio solo se encarga
+ * de la cadencia de 30s, contar fallos consecutivos y la notificación.
  */
 @AndroidEntryPoint
 class MonitoringForegroundService : Service() {
 
-    @Inject lateinit var felicityRepository: FelicityRepository
-    @Inject lateinit var alertRuleRepository: AlertRuleRepository
-    @Inject lateinit var evaluateAlertRulesUseCase: EvaluateAlertRulesUseCase
-    @Inject lateinit var dispatchAlertUseCase: DispatchAlertUseCase
-    @Inject lateinit var appPreferences: AppPreferences
+    @Inject lateinit var runMonitoringCycleUseCase: RunMonitoringCycleUseCase
     @Inject lateinit var credentialsStore: CredentialsStore
     @Inject lateinit var stateHolder: MonitoringStateHolder
 
     private val serviceScope = CoroutineScope(Dispatchers.IO + Job())
     private var pollingJob: Job? = null
     private var tickerJob: Job? = null
-    private var consecutiveFailures = 0
     private var lastReadingAt: Instant? = null
 
     override fun onBind(intent: Intent?): IBinder? = null
@@ -82,9 +74,9 @@ class MonitoringForegroundService : Service() {
         tickerJob = serviceScope.launch {
             while (true) {
                 delay(TICKER_INTERVAL_MILLIS)
-                if (consecutiveFailures < MAX_CONSECUTIVE_FAILURES_BEFORE_WARNING) {
+                if (stateHolder.consecutiveFailures.value < MAX_CONSECUTIVE_FAILURES_BEFORE_WARNING) {
                     val secondsSinceLastReading = lastReadingAt?.let {
-                        java.time.Duration.between(it, Instant.now()).seconds
+                        Duration.between(it, Instant.now()).seconds
                     }
                     val text = if (secondsSinceLastReading != null) {
                         "Vigilando el inversor · última lectura hace $secondsSinceLastReading s"
@@ -99,49 +91,25 @@ class MonitoringForegroundService : Service() {
 
     private suspend fun runCycle() {
         if (!credentialsStore.hasFsolarCredentials()) {
-            stateHolder.reportFailure("Faltan credenciales de FSolar", consecutiveFailures)
+            stateHolder.reportFailure("Faltan credenciales de FSolar")
             updatePersistentNotification("Sin credenciales de FSolar configuradas")
             return
         }
 
         try {
-            val reading = felicityRepository.fetchLatestReading()
-            consecutiveFailures = 0
+            runMonitoringCycleUseCase.run()
             lastReadingAt = Instant.now()
-            appPreferences.setLastReadingNow(lastReadingAt!!.toEpochMilli())
-            stateHolder.updateReadings(reading.inverter, reading.battery, lastReadingAt!!)
-
-            val enabledRules = alertRuleRepository.getEnabledRules()
-            val triggers = evaluateAlertRulesUseCase.evaluate(enabledRules, reading, lastReadingAt!!)
-            triggers.forEach { trigger ->
-                dispatchAlertUseCase.dispatch(trigger.rule, trigger.message)
-                val gridState = when (trigger.rule.type) {
-                    com.dairoroberto.felicitywatch.domain.model.AlertRuleType.GRID_OFFLINE -> GridState.OFFLINE
-                    com.dairoroberto.felicitywatch.domain.model.AlertRuleType.GRID_ONLINE -> GridState.ONLINE
-                    else -> null
-                }
-                gridState?.let { stateHolder.updateConfirmedGridState(it, lastReadingAt!!) }
-            }
-
             updatePersistentNotification("Vigilando el inversor · última lectura hace 0 s")
         } catch (e: Exception) {
-            consecutiveFailures++
-            stateHolder.reportFailure(describeError(e), consecutiveFailures)
-            if (consecutiveFailures >= MAX_CONSECUTIVE_FAILURES_BEFORE_WARNING) {
+            stateHolder.reportFailure(describeMonitoringError(e))
+            val failures = stateHolder.consecutiveFailures.value
+            if (failures >= MAX_CONSECUTIVE_FAILURES_BEFORE_WARNING) {
                 val minutesSinceLastReading = lastReadingAt?.let {
-                    java.time.Duration.between(it, Instant.now()).toMinutes()
+                    Duration.between(it, Instant.now()).toMinutes()
                 } ?: 0
                 updatePersistentNotification("Sin conexión con Felicity desde hace $minutesSinceLastReading min")
             }
         }
-    }
-
-    private fun describeError(e: Exception): String = when (e) {
-        is FelicityCredentialsMissingException -> "Faltan credenciales de FSolar"
-        is FelicityAuthException -> "No se pudo iniciar sesión en Felicity: ${e.message}"
-        is FelicityApiException -> "Error de la API de Felicity: ${e.message}"
-        is IOException -> "Sin conexión a internet o Felicity no responde"
-        else -> e.message ?: e.toString()
     }
 
     private fun buildPersistentNotification(text: String): Notification {

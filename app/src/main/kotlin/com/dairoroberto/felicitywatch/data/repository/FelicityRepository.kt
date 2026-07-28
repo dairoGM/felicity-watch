@@ -61,12 +61,12 @@ class FelicityRepository @Inject constructor(
 
         val inverterReading = inverterSerial?.let { sn ->
             val snapshot = apiClient.getDeviceSnapshot(username, password, sn)
-            snapshot.data?.let { FelicitySnapshotMapper.toInverterReading(sn, it, now) }
+            snapshot.dataObject?.let { FelicitySnapshotMapper.toInverterReading(sn, it, now) }
         }
 
         val batteryReading = batterySerial?.let { sn ->
             val snapshot = apiClient.getDeviceSnapshot(username, password, sn)
-            snapshot.data?.let { FelicitySnapshotMapper.toBatteryReading(sn, it, now) }
+            snapshot.dataObject?.let { FelicitySnapshotMapper.toBatteryReading(sn, it, now) }
         }
 
         return SystemReading(inverterReading, batteryReading)

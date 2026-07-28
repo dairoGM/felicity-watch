@@ -22,8 +22,9 @@ data class AlertTrigger(val rule: AlertRuleEntity, val message: String)
 @Singleton
 class EvaluateAlertRulesUseCase @Inject constructor() {
 
+    private data class GridConfig(val debounceSeconds: Int, val wattThreshold: Int)
     private var gridDebouncer: GridStateDebouncer? = null
-    private var gridDebouncerSeconds: Int? = null
+    private var gridDebouncerConfig: GridConfig? = null
 
     private data class SocConfig(val threshold: Double, val operator: ComparisonOperator, val debounceSeconds: Int)
     private val socDebouncers = mutableMapOf<Long, Pair<SocConfig, SocThresholdDebouncer>>()
@@ -49,9 +50,11 @@ class EvaluateAlertRulesUseCase @Inject constructor() {
         if (gridOffline?.enabled != true && gridOnline?.enabled != true) return null
 
         val debounceSeconds = gridOffline?.debounceSeconds ?: gridOnline?.debounceSeconds ?: 60
-        if (gridDebouncer == null || gridDebouncerSeconds != debounceSeconds) {
-            gridDebouncer = GridStateDebouncer(debounceSeconds)
-            gridDebouncerSeconds = debounceSeconds
+        val wattThreshold = (gridOffline?.thresholdValue ?: gridOnline?.thresholdValue ?: 1.0).toInt()
+        val config = GridConfig(debounceSeconds, wattThreshold)
+        if (gridDebouncer == null || gridDebouncerConfig != config) {
+            gridDebouncer = GridStateDebouncer(debounceSeconds, wattThreshold)
+            gridDebouncerConfig = config
         }
 
         val confirmed = gridDebouncer?.onNewReading(inverter.gridPowerWatts, now) ?: return null

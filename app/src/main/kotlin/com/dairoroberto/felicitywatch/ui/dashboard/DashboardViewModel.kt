@@ -8,14 +8,18 @@ import com.dairoroberto.felicitywatch.data.repository.AlertEventRepository
 import com.dairoroberto.felicitywatch.domain.model.BatteryReading
 import com.dairoroberto.felicitywatch.domain.model.GridState
 import com.dairoroberto.felicitywatch.domain.model.InverterReading
+import com.dairoroberto.felicitywatch.domain.usecase.RunMonitoringCycleUseCase
+import com.dairoroberto.felicitywatch.domain.usecase.describeMonitoringError
 import com.dairoroberto.felicitywatch.notification.NotificationChannels
 import com.dairoroberto.felicitywatch.service.MonitoringStateHolder
 import dagger.hilt.android.lifecycle.HiltViewModel
 import dagger.hilt.android.qualifiers.ApplicationContext
+import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.stateIn
+import kotlinx.coroutines.launch
 import java.time.Instant
 import javax.inject.Inject
 
@@ -55,11 +59,15 @@ private data class StatusSnapshot(
 
 @HiltViewModel
 class DashboardViewModel @Inject constructor(
-    stateHolder: MonitoringStateHolder,
+    private val stateHolder: MonitoringStateHolder,
+    private val runMonitoringCycleUseCase: RunMonitoringCycleUseCase,
     alertEventRepository: AlertEventRepository,
     private val credentialsStore: CredentialsStore,
     @ApplicationContext private val context: android.content.Context
 ) : ViewModel() {
+
+    private val _isRefreshing = MutableStateFlow(false)
+    val isRefreshing: StateFlow<Boolean> = _isRefreshing
 
     private val readingsFlow = combine(
         stateHolder.liveGridState,
@@ -98,4 +106,19 @@ class DashboardViewModel @Inject constructor(
             whatsappConfigured = credentialsStore.hasWhatsappConfig()
         )
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), DashboardUiState())
+
+    /** Lectura manual: al deslizar hacia abajo en el Panel (guía funcional del usuario). */
+    fun refreshNow() {
+        if (_isRefreshing.value) return
+        viewModelScope.launch {
+            _isRefreshing.value = true
+            try {
+                runMonitoringCycleUseCase.run()
+            } catch (e: Exception) {
+                stateHolder.reportFailure(describeMonitoringError(e))
+            } finally {
+                _isRefreshing.value = false
+            }
+        }
+    }
 }

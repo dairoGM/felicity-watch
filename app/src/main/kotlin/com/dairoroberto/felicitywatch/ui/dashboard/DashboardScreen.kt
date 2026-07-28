@@ -8,8 +8,10 @@ import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -18,9 +20,11 @@ import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.Error
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
+import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
@@ -34,34 +38,56 @@ import androidx.hilt.navigation.compose.hiltViewModel
 import com.dairoroberto.felicitywatch.domain.model.GridState
 import com.dairoroberto.felicitywatch.ui.theme.JetBrainsMonoFamily
 import com.dairoroberto.felicitywatch.ui.theme.LocalFelicityColors
+import com.dairoroberto.felicitywatch.ui.theme.SpaceGroteskFamily
 import java.time.Duration
 import java.time.Instant
+import java.time.ZoneId
 import java.time.format.DateTimeFormatter
 import java.time.format.FormatStyle
 import java.util.Locale
 
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun DashboardScreen(viewModel: DashboardViewModel = hiltViewModel()) {
     val state by viewModel.uiState.collectAsState()
+    val isRefreshing by viewModel.isRefreshing.collectAsState()
 
-    LazyColumn(
-        modifier = Modifier.fillMaxSize(),
-        contentPadding = PaddingValues(16.dp),
-        verticalArrangement = Arrangement.spacedBy(14.dp)
+    PullToRefreshBox(
+        isRefreshing = isRefreshing,
+        onRefresh = { viewModel.refreshNow() },
+        modifier = Modifier.fillMaxSize()
     ) {
-        item { ConnectionStatusCard(state) }
-        item { GridHeroCard(state) }
-        item { MetricsRow(state) }
-        item {
-            Text(
-                "CANALES DE AVISO",
-                style = MaterialTheme.typography.labelSmall,
-                color = LocalFelicityColors.current.textLow,
-                modifier = Modifier.padding(start = 2.dp)
-            )
+        LazyColumn(
+            modifier = Modifier.fillMaxSize(),
+            contentPadding = PaddingValues(16.dp),
+            verticalArrangement = Arrangement.spacedBy(14.dp)
+        ) {
+            item { ConnectionStatusCard(state) }
+            item { GridHeroCard(state) }
+            item { MetricsRow(state) }
+            item {
+                Text(
+                    "CANALES DE AVISO",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = LocalFelicityColors.current.textLow,
+                    modifier = Modifier.padding(start = 2.dp)
+                )
+            }
+            item { ChannelsList(state) }
         }
-        item { ChannelsList(state) }
     }
+}
+
+/** Barra de acento a la izquierda en vez de rellenar toda la tarjeta de color — más sobrio. */
+@Composable
+private fun AccentBar(color: androidx.compose.ui.graphics.Color) {
+    Box(
+        Modifier
+            .width(4.dp)
+            .height(46.dp)
+            .clip(RoundedCornerShape(2.dp))
+            .background(color)
+    )
 }
 
 @Composable
@@ -70,21 +96,22 @@ private fun ConnectionStatusCard(state: DashboardUiState) {
     val colors = LocalFelicityColors.current
 
     Card(
-        colors = CardDefaults.cardColors(
-            containerColor = if (healthy) colors.surface2 else colors.dangerBg
-        ),
-        shape = RoundedCornerShape(11.dp)
+        colors = CardDefaults.cardColors(containerColor = colors.surface2),
+        shape = RoundedCornerShape(14.dp),
+        elevation = CardDefaults.cardElevation(defaultElevation = 1.dp)
     ) {
         Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(horizontal = 13.dp, vertical = 11.dp),
+                .padding(horizontal = 14.dp, vertical = 12.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
+            AccentBar(if (healthy) colors.green else MaterialTheme.colorScheme.error)
             Icon(
                 if (healthy) Icons.Default.CheckCircle else Icons.Default.Error,
                 contentDescription = null,
-                tint = if (healthy) colors.green else MaterialTheme.colorScheme.error
+                tint = if (healthy) colors.green else MaterialTheme.colorScheme.error,
+                modifier = Modifier.padding(start = 12.dp)
             )
             Column(Modifier.padding(start = 10.dp)) {
                 Text(
@@ -100,7 +127,13 @@ private fun ConnectionStatusCard(state: DashboardUiState) {
                     )
                 } else if (healthy && state.lastSuccessfulReadingAt != null) {
                     Text(
-                        "Última lectura hace ${secondsAgo(state.lastSuccessfulReadingAt)} s",
+                        "Última lectura: ${readingTimestampLabel(state.lastSuccessfulReadingAt)}",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = colors.textMid
+                    )
+                } else if (!healthy) {
+                    Text(
+                        "Desliza hacia abajo para reintentar",
                         style = MaterialTheme.typography.labelSmall,
                         color = colors.textMid
                     )
@@ -110,18 +143,24 @@ private fun ConnectionStatusCard(state: DashboardUiState) {
     }
 }
 
-private fun secondsAgo(instant: Instant): Long = Duration.between(instant, Instant.now()).seconds.coerceAtLeast(0)
+private fun readingTimestampLabel(instant: Instant): String {
+    val formatter = DateTimeFormatter.ofLocalizedTime(FormatStyle.SHORT).withLocale(Locale("es", "ES"))
+    val time = formatter.format(instant.atZone(ZoneId.systemDefault()))
+    val secondsAgo = Duration.between(instant, Instant.now()).seconds.coerceAtLeast(0)
+    return "$time (hace ${secondsAgo}s)"
+}
 
 @Composable
 private fun GridHeroCard(state: DashboardUiState) {
     val colors = LocalFelicityColors.current
     val online = state.liveGridState == GridState.ONLINE
     val unknown = state.liveGridState == GridState.UNKNOWN
+    val accent = if (unknown) colors.textLow else if (online) colors.green else MaterialTheme.colorScheme.error
 
     Card(
-        colors = CardDefaults.cardColors(
-            containerColor = if (online) colors.greenDim else colors.surface2
-        ),
+        colors = CardDefaults.cardColors(containerColor = colors.surface2),
+        shape = RoundedCornerShape(16.dp),
+        elevation = CardDefaults.cardElevation(defaultElevation = 1.dp),
         modifier = Modifier.fillMaxWidth()
     ) {
         Column(Modifier.padding(18.dp)) {
@@ -130,7 +169,7 @@ private fun GridHeroCard(state: DashboardUiState) {
                     Modifier
                         .size(10.dp)
                         .clip(CircleShape)
-                        .background(if (online) colors.green else MaterialTheme.colorScheme.error)
+                        .background(accent)
                 )
                 Text(
                     "  ESTADO DE LA RED",
@@ -144,9 +183,9 @@ private fun GridHeroCard(state: DashboardUiState) {
                     online -> "Con corriente eléctrica"
                     else -> "Sin corriente eléctrica"
                 },
-                fontFamily = com.dairoroberto.felicitywatch.ui.theme.SpaceGroteskFamily,
+                fontFamily = SpaceGroteskFamily,
                 fontWeight = FontWeight.SemiBold,
-                fontSize = 24.sp,
+                fontSize = 26.sp,
                 modifier = Modifier.padding(top = 10.dp)
             )
             Text(
@@ -195,7 +234,8 @@ private fun MetricCard(modifier: Modifier = Modifier, label: String, valueText: 
     Card(
         modifier = modifier,
         colors = CardDefaults.cardColors(containerColor = colors.surface2),
-        shape = RoundedCornerShape(11.dp)
+        shape = RoundedCornerShape(14.dp),
+        elevation = CardDefaults.cardElevation(defaultElevation = 1.dp)
     ) {
         Column(Modifier.padding(14.dp)) {
             Text(label, style = MaterialTheme.typography.bodySmall, color = colors.textLow)
@@ -220,7 +260,7 @@ private fun ChannelsList(state: DashboardUiState) {
 
     fun timeFor(sent: Boolean): String {
         if (event == null || !sent) return "—"
-        return timeFormatter.format(event.triggeredAt.atZone(java.time.ZoneId.systemDefault()))
+        return timeFormatter.format(event.triggeredAt.atZone(ZoneId.systemDefault()))
     }
 
     data class Row4(val label: String, val configured: Boolean, val lastFired: String)
@@ -233,11 +273,15 @@ private fun ChannelsList(state: DashboardUiState) {
 
     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
         rows.forEach { row ->
-            Card(colors = CardDefaults.cardColors(containerColor = colors.surface2), shape = RoundedCornerShape(9.dp)) {
+            Card(
+                colors = CardDefaults.cardColors(containerColor = colors.surface2),
+                shape = RoundedCornerShape(12.dp),
+                elevation = CardDefaults.cardElevation(defaultElevation = 1.dp)
+            ) {
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .padding(horizontal = 12.dp, vertical = 10.dp),
+                        .padding(horizontal = 14.dp, vertical = 12.dp),
                     horizontalArrangement = Arrangement.SpaceBetween,
                     verticalAlignment = Alignment.CenterVertically
                 ) {
