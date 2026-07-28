@@ -1,0 +1,7 @@
+<resources>
+    <string name="app_name">Felicity Watch</string>
+    <string name="notification_channel_alerts_name">Alertas de red y batería</string>
+    <string name="notification_channel_alerts_desc">Avisos de corte/restablecimiento de red y estado de batería</string>
+    <string name="notification_channel_service_name">Vigilancia en segundo plano</string>
+    <string name="notification_channel_service_desc">Notificación persistente del monitoreo del inversor</string>
+</resources>

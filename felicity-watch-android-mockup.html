@@ -1,0 +1,261 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<title>Felicity Watch — Android</title>
+<style>
+@import url('https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&family=JetBrains+Mono:wght@400;500;600&family=Inter:wght@400;500;600&display=swap');
+
+:root{
+  --bg-page:#EDEBE4;
+  --panel-bg:#0B0F14;
+  --panel-surface:#121820;
+  --panel-surface-2:#1A222C;
+  --hairline:#26313D;
+  --teal:#3ECAC0;
+  --teal-dim:#1E4D49;
+  --orange:#F2622E;
+  --green:#4ADE80;
+  --green-dim:#1E3B2A;
+  --text-hi:#E8EDF0;
+  --text-mid:#8FA0AC;
+  --text-low:#546472;
+}
+*{box-sizing:border-box;margin:0;padding:0;}
+body{
+  background:var(--bg-page);
+  font-family:'Inter',sans-serif;
+  padding:56px 24px;
+  color:var(--text-hi);
+}
+.label-eyebrow{
+  max-width:1180px;margin:0 auto 26px auto;
+  font-family:'JetBrains Mono',monospace;
+  font-size:12px;letter-spacing:.12em;text-transform:uppercase;
+  color:#8a8677;
+}
+.row{
+  max-width:1180px;margin:0 auto;
+  display:flex;gap:34px;flex-wrap:wrap;align-items:flex-start;
+  justify-content:center;
+}
+.phone{
+  width:300px;height:632px;
+  background:#000;
+  border-radius:38px;
+  padding:10px;
+  flex-shrink:0;
+}
+.screen{
+  width:100%;height:100%;
+  background:var(--panel-bg);
+  border-radius:28px;
+  overflow:hidden;
+  display:flex;flex-direction:column;
+  position:relative;
+}
+.statusbar{
+  height:28px;display:flex;align-items:center;justify-content:space-between;
+  padding:0 20px;font-size:11px;color:var(--text-mid);font-family:'JetBrains Mono',monospace;
+}
+.notch{
+  position:absolute;top:0;left:50%;transform:translateX(-50%);
+  width:70px;height:18px;background:#000;border-radius:0 0 12px 12px;z-index:5;
+}
+
+.appbar{padding:14px 18px 6px 18px;}
+.appbar-title{font-family:'Space Grotesk',sans-serif;font-weight:600;font-size:17px;}
+.appbar-sub{font-size:11.5px;color:var(--text-low);margin-top:2px;font-family:'JetBrains Mono',monospace;}
+
+.content{padding:14px 16px;display:flex;flex-direction:column;gap:12px;flex:1;overflow:hidden;}
+
+.hero-card{
+  border-radius:12px;border:1px solid var(--hairline);
+  background:linear-gradient(180deg,var(--green-dim) 0%, var(--panel-surface-2) 75%);
+  padding:16px 16px;
+}
+.hero-top{display:flex;align-items:center;gap:9px;margin-bottom:10px;}
+.pulse{width:9px;height:9px;border-radius:50%;background:var(--green);box-shadow:0 0 0 4px var(--green-dim);}
+.hero-label{font-family:'JetBrains Mono',monospace;font-size:9.5px;letter-spacing:.1em;color:#8FCBA6;text-transform:uppercase;}
+.hero-value{font-family:'Space Grotesk',sans-serif;font-weight:600;font-size:18px;}
+.hero-foot{font-size:10.5px;color:var(--text-mid);margin-top:8px;font-family:'JetBrains Mono',monospace;}
+
+.metrics{display:grid;grid-template-columns:1fr 1fr;gap:10px;}
+.mcard{background:var(--panel-surface-2);border:1px solid var(--hairline);border-radius:11px;padding:12px 13px;}
+.mcard-label{font-size:10px;color:var(--text-low);text-transform:uppercase;letter-spacing:.05em;margin-bottom:5px;}
+.mcard-value{font-family:'JetBrains Mono',monospace;font-size:17px;font-weight:500;}
+.mcard-value span{font-size:10px;color:var(--text-mid);margin-left:2px;}
+
+.batt-mini{display:flex;align-items:center;gap:10px;}
+.batt-shell{width:26px;height:44px;border:2px solid var(--hairline);border-radius:5px;position:relative;padding:2px;display:flex;align-items:flex-end;}
+.batt-nub{position:absolute;top:-5px;left:50%;transform:translateX(-50%);width:9px;height:4px;background:var(--hairline);border-radius:2px 2px 0 0;}
+.batt-fill{width:100%;background:var(--teal);border-radius:2px;height:82%;}
+.batt-pct{font-family:'Space Grotesk',sans-serif;font-size:18px;font-weight:600;}
+.batt-detail{font-size:9.5px;color:var(--text-mid);}
+
+.section-label{font-size:10.5px;color:var(--text-low);text-transform:uppercase;letter-spacing:.06em;margin:2px 0 2px 2px;}
+.channels{display:flex;flex-direction:column;gap:7px;}
+.channel-row{display:flex;align-items:center;justify-content:space-between;padding:9px 11px;border-radius:9px;background:var(--panel-surface-2);border:1px solid var(--hairline);}
+.channel-left{display:flex;align-items:center;gap:8px;font-size:12px;}
+.led{width:6px;height:6px;border-radius:50%;background:var(--green);box-shadow:0 0 0 3px var(--green-dim);}
+.channel-time{font-family:'JetBrains Mono',monospace;font-size:9.5px;color:var(--text-low);}
+
+.navbar{
+  display:flex;justify-content:space-around;align-items:center;
+  height:56px;border-top:1px solid var(--hairline);background:#0E1319;
+}
+.navitem{display:flex;flex-direction:column;align-items:center;gap:3px;font-size:9px;color:var(--text-low);}
+.navitem.active{color:var(--teal);}
+.navicon{width:16px;height:16px;border-radius:4px;background:currentColor;opacity:.9;}
+
+.rule{background:var(--panel-surface-2);border:1px solid var(--hairline);border-radius:11px;padding:11px 13px;display:flex;align-items:center;gap:10px;}
+.rule-toggle{width:28px;height:16px;border-radius:9px;background:var(--teal);position:relative;flex-shrink:0;}
+.rule-toggle::after{content:"";position:absolute;width:11px;height:11px;border-radius:50%;background:#0B0F14;top:2.5px;right:2.5px;}
+.rule-toggle.off{background:var(--hairline);}
+.rule-toggle.off::after{left:2.5px;right:auto;}
+.rule-info{flex:1;}
+.rule-title{font-family:'Space Grotesk',sans-serif;font-size:12px;font-weight:500;margin-bottom:2px;}
+.rule-desc{font-size:10px;color:var(--text-mid);font-family:'JetBrains Mono',monospace;}
+.rule-chans{display:flex;gap:4px;}
+.chan-pill{width:20px;height:20px;border-radius:5px;display:flex;align-items:center;justify-content:center;font-size:10px;background:var(--panel-surface);border:1px solid var(--hairline);color:var(--text-mid);}
+.chan-pill.on{background:var(--teal-dim);border-color:var(--teal);color:var(--teal);}
+
+.lock-time{text-align:center;margin:26px 0 18px 0;}
+.lock-clock{font-family:'Space Grotesk',sans-serif;font-size:52px;font-weight:600;line-height:1;}
+.lock-date{font-size:12px;color:var(--text-mid);margin-top:6px;font-family:'JetBrains Mono',monospace;text-transform:capitalize;}
+
+.notif{
+  margin:0 12px 10px 12px;background:var(--panel-surface-2);border:1px solid var(--hairline);
+  border-radius:14px;padding:12px 13px;
+}
+.notif.danger{border-color:#7a2f2f;background:#211112;}
+.notif-top{display:flex;align-items:center;gap:8px;margin-bottom:6px;}
+.notif-badge{width:20px;height:20px;border-radius:5px;background:var(--orange);flex-shrink:0;display:flex;align-items:center;justify-content:center;font-family:'Space Grotesk',sans-serif;font-weight:700;font-size:11px;color:#1a0d06;}
+.notif-app{font-size:10.5px;color:var(--text-mid);flex:1;}
+.notif-time{font-size:10px;color:var(--text-low);font-family:'JetBrains Mono',monospace;}
+.notif-title{font-size:12.5px;font-weight:500;margin-bottom:2px;}
+.notif-body{font-size:11.5px;color:var(--text-mid);}
+.notif.persist{border-color:var(--hairline);background:var(--panel-surface-2);opacity:.85;}
+</style>
+</head>
+<body>
+
+<div class="label-eyebrow">Prototipo visual — no funcional · Felicity Watch para Android</div>
+
+<div class="row">
+
+  <div class="phone">
+    <div class="screen">
+      <div class="notch"></div>
+      <div class="statusbar"><span>9:41</span><span>WiFi · 4G · 82%</span></div>
+      <div class="appbar">
+        <div class="appbar-title">Felicity Watch</div>
+        <div class="appbar-sub">Inv 8k · Marianao</div>
+      </div>
+      <div class="content">
+        <div class="hero-card">
+          <div class="hero-top"><div class="pulse"></div><div class="hero-label">Estado de la red</div></div>
+          <div class="hero-value">Con corriente eléctrica</div>
+          <div class="hero-foot">Último cambio hace 2 h 14 min</div>
+        </div>
+
+        <div class="metrics">
+          <div class="mcard">
+            <div class="mcard-label">PV</div>
+            <div class="mcard-value">1240<span>W</span></div>
+          </div>
+          <div class="mcard">
+            <div class="mcard-label">Batería</div>
+            <div class="batt-mini">
+              <div class="batt-shell"><div class="batt-nub"></div><div class="batt-fill"></div></div>
+              <div><div class="batt-pct">82%</div><div class="batt-detail">53.1 V</div></div>
+            </div>
+          </div>
+        </div>
+
+        <div class="section-label">Canales de aviso</div>
+        <div class="channels">
+          <div class="channel-row"><div class="channel-left"><div class="led"></div>Voz del teléfono</div><div class="channel-time">10:42</div></div>
+          <div class="channel-row"><div class="channel-left"><div class="led"></div>Notificación push</div><div class="channel-time">10:42</div></div>
+          <div class="channel-row"><div class="channel-left"><div class="led"></div>WhatsApp</div><div class="channel-time">10:43</div></div>
+        </div>
+      </div>
+      <div class="navbar">
+        <div class="navitem active"><div class="navicon"></div>Panel</div>
+        <div class="navitem"><div class="navicon"></div>Alertas</div>
+        <div class="navitem"><div class="navicon"></div>Historial</div>
+        <div class="navitem"><div class="navicon"></div>Ajustes</div>
+      </div>
+    </div>
+  </div>
+
+  <div class="phone">
+    <div class="screen">
+      <div class="notch"></div>
+      <div class="statusbar"><span>9:41</span><span>WiFi · 4G · 82%</span></div>
+      <div class="appbar">
+        <div class="appbar-title">Alertas</div>
+        <div class="appbar-sub">4 reglas · 3 canales conectados</div>
+      </div>
+      <div class="content">
+        <div class="rule">
+          <div class="rule-toggle"></div>
+          <div class="rule-info"><div class="rule-title">Corte de red</div><div class="rule-desc">Red por debajo de 1 W · 60 s</div></div>
+          <div class="rule-chans"><div class="chan-pill on">V</div><div class="chan-pill on">P</div><div class="chan-pill on">W</div></div>
+        </div>
+        <div class="rule">
+          <div class="rule-toggle"></div>
+          <div class="rule-info"><div class="rule-title">Volvió la red</div><div class="rule-desc">Red por encima de 1 W · 60 s</div></div>
+          <div class="rule-chans"><div class="chan-pill on">V</div><div class="chan-pill on">P</div><div class="chan-pill on">W</div></div>
+        </div>
+        <div class="rule">
+          <div class="rule-toggle"></div>
+          <div class="rule-info"><div class="rule-title">Batería baja</div><div class="rule-desc">Carga igual o menor a 20%</div></div>
+          <div class="rule-chans"><div class="chan-pill">V</div><div class="chan-pill on">P</div><div class="chan-pill">W</div></div>
+        </div>
+        <div class="rule">
+          <div class="rule-toggle off"></div>
+          <div class="rule-info"><div class="rule-title">Batería llena</div><div class="rule-desc">Carga igual o mayor a 100%</div></div>
+          <div class="rule-chans"><div class="chan-pill">V</div><div class="chan-pill">P</div><div class="chan-pill">W</div></div>
+        </div>
+      </div>
+      <div class="navbar">
+        <div class="navitem"><div class="navicon"></div>Panel</div>
+        <div class="navitem active"><div class="navicon"></div>Alertas</div>
+        <div class="navitem"><div class="navicon"></div>Historial</div>
+        <div class="navitem"><div class="navicon"></div>Ajustes</div>
+      </div>
+    </div>
+  </div>
+
+  <div class="phone">
+    <div class="screen">
+      <div class="notch"></div>
+      <div class="statusbar"><span>9:41</span><span>WiFi · 4G · 82%</span></div>
+      <div class="lock-time">
+        <div class="lock-clock">00:14</div>
+        <div class="lock-date">domingo, 27 de julio</div>
+      </div>
+      <div class="notif danger">
+        <div class="notif-top">
+          <div class="notif-badge">F</div>
+          <div class="notif-app">FELICITY WATCH</div>
+          <div class="notif-time">ahora</div>
+        </div>
+        <div class="notif-title">Se fue la corriente</div>
+        <div class="notif-body">Sistema funcionando con batería · 100% carga</div>
+      </div>
+      <div class="notif persist">
+        <div class="notif-top">
+          <div class="notif-badge">F</div>
+          <div class="notif-app">FELICITY WATCH · EN SEGUNDO PLANO</div>
+        </div>
+        <div class="notif-body">Vigilando el inversor · última lectura hace 8 s</div>
+      </div>
+    </div>
+  </div>
+
+</div>
+
+</body>
+</html>
