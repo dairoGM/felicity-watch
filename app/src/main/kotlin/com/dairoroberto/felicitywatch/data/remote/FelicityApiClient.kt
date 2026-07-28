@@ -49,6 +49,8 @@ class FelicityApiClient @Inject constructor(
             val errors = mutableListOf<String>()
 
             for (attempt in attempts) {
+                val attemptLabel = "${if (attempt.useFallbackEndpoint) "fallback" else "primario"}" +
+                    "/${if (attempt.publicKey == RsaPasswordEncryptor.PUBLIC_KEY_PRIMARY) "clave1" else "clave2"}"
                 try {
                     val encryptedPassword = RsaPasswordEncryptor.encrypt(password, attempt.publicKey)
                     val body = LoginRequest(userName = username, password = encryptedPassword)
@@ -59,26 +61,29 @@ class FelicityApiClient @Inject constructor(
                     }
 
                     if (!response.isSuccessful) {
-                        errors += "HTTP ${response.code()}"
+                        errors += "[$attemptLabel] HTTP ${response.code()}"
                         continue
                     }
 
                     val loginResponse = response.body()
                     if (loginResponse?.code != 200) {
-                        errors += "code=${loginResponse?.code} msg=${loginResponse?.message}"
+                        // "data" a veces trae el motivo real del rechazo como texto (ej.
+                        // "contraseña incorrecta") cuando "msg" viene null — se incluye
+                        // crudo para no perder esa pista.
+                        errors += "[$attemptLabel] code=${loginResponse?.code} msg=${loginResponse?.message} data=${loginResponse?.data}"
                         continue
                     }
 
                     val rawToken = loginResponse.extractToken()
                     if (rawToken.isNullOrBlank()) {
-                        errors += "sin token en la respuesta"
+                        errors += "[$attemptLabel] sin token en la respuesta (data=${loginResponse.data})"
                         continue
                     }
 
                     token = if (rawToken.startsWith("Bearer_")) rawToken else "Bearer_$rawToken"
                     return
                 } catch (e: Exception) {
-                    errors += e.message ?: e.toString()
+                    errors += "[$attemptLabel] ${e.message ?: e.toString()}"
                 }
             }
 
