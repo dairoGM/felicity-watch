@@ -42,7 +42,7 @@ class FelicityRepository @Inject constructor(
         // dejaba de reintentar para siempre y ese dispositivo nunca se leía.
         if (inverterSerial != null && batterySerial != null) return
 
-        val devices = apiClient.listDevices(username, password).data?.dataList.orEmpty()
+        val devices = apiClient.listDevices(username, password).extractDeviceList()
         inverterSerial = inverterSerial
             ?: devices.firstOrNull { it.deviceType?.uppercase() == DeviceDto.TYPE_INVERTER }?.deviceSn
         batterySerial = batterySerial

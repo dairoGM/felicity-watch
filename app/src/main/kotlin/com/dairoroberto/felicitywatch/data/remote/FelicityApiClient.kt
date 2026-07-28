@@ -69,7 +69,7 @@ class FelicityApiClient @Inject constructor(
                         continue
                     }
 
-                    val rawToken = loginResponse.data?.token
+                    val rawToken = loginResponse.extractToken()
                     if (rawToken.isNullOrBlank()) {
                         errors += "sin token en la respuesta"
                         continue
