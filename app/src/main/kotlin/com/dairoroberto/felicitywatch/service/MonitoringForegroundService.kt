@@ -8,7 +8,10 @@ import android.os.IBinder
 import androidx.core.app.NotificationCompat
 import com.dairoroberto.felicitywatch.data.local.AppPreferences
 import com.dairoroberto.felicitywatch.data.local.CredentialsStore
+import com.dairoroberto.felicitywatch.data.remote.FelicityApiException
+import com.dairoroberto.felicitywatch.data.remote.FelicityAuthException
 import com.dairoroberto.felicitywatch.data.repository.AlertRuleRepository
+import com.dairoroberto.felicitywatch.data.repository.FelicityCredentialsMissingException
 import com.dairoroberto.felicitywatch.data.repository.FelicityRepository
 import com.dairoroberto.felicitywatch.domain.usecase.DispatchAlertUseCase
 import com.dairoroberto.felicitywatch.domain.usecase.EvaluateAlertRulesUseCase
@@ -22,6 +25,7 @@ import kotlinx.coroutines.Job
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+import java.io.IOException
 import java.time.Instant
 import javax.inject.Inject
 
@@ -95,6 +99,7 @@ class MonitoringForegroundService : Service() {
 
     private suspend fun runCycle() {
         if (!credentialsStore.hasFsolarCredentials()) {
+            stateHolder.reportFailure("Faltan credenciales de FSolar", consecutiveFailures)
             updatePersistentNotification("Sin credenciales de FSolar configuradas")
             return
         }
@@ -104,7 +109,7 @@ class MonitoringForegroundService : Service() {
             consecutiveFailures = 0
             lastReadingAt = Instant.now()
             appPreferences.setLastReadingNow(lastReadingAt!!.toEpochMilli())
-            stateHolder.updateReadings(reading.inverter, reading.battery)
+            stateHolder.updateReadings(reading.inverter, reading.battery, lastReadingAt!!)
 
             val enabledRules = alertRuleRepository.getEnabledRules()
             val triggers = evaluateAlertRulesUseCase.evaluate(enabledRules, reading, lastReadingAt!!)
@@ -121,7 +126,7 @@ class MonitoringForegroundService : Service() {
             updatePersistentNotification("Vigilando el inversor · última lectura hace 0 s")
         } catch (e: Exception) {
             consecutiveFailures++
-            stateHolder.setError(e.message ?: e.toString())
+            stateHolder.reportFailure(describeError(e), consecutiveFailures)
             if (consecutiveFailures >= MAX_CONSECUTIVE_FAILURES_BEFORE_WARNING) {
                 val minutesSinceLastReading = lastReadingAt?.let {
                     java.time.Duration.between(it, Instant.now()).toMinutes()
@@ -129,6 +134,14 @@ class MonitoringForegroundService : Service() {
                 updatePersistentNotification("Sin conexión con Felicity desde hace $minutesSinceLastReading min")
             }
         }
+    }
+
+    private fun describeError(e: Exception): String = when (e) {
+        is FelicityCredentialsMissingException -> "Faltan credenciales de FSolar"
+        is FelicityAuthException -> "No se pudo iniciar sesión en Felicity: ${e.message}"
+        is FelicityApiException -> "Error de la API de Felicity: ${e.message}"
+        is IOException -> "Sin conexión a internet o Felicity no responde"
+        else -> e.message ?: e.toString()
     }
 
     private fun buildPersistentNotification(text: String): Notification {

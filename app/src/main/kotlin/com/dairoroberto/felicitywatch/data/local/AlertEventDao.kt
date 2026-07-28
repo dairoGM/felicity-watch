@@ -15,4 +15,7 @@ interface AlertEventDao {
 
     @Insert
     suspend fun insert(event: AlertEventEntity): Long
+
+    @Query("DELETE FROM alert_events")
+    suspend fun deleteAll()
 }

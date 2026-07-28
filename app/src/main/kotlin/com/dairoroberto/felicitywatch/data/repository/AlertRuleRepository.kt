@@ -22,4 +22,10 @@ class AlertRuleRepository @Inject constructor(
             dao.insertAll(AppDatabase.defaultAlertRules())
         }
     }
+
+    /** Restablecimiento de fábrica: borra las reglas editadas y vuelve a los valores por defecto. */
+    suspend fun resetToDefaults() {
+        dao.deleteAll()
+        dao.insertAll(AppDatabase.defaultAlertRules())
+    }
 }

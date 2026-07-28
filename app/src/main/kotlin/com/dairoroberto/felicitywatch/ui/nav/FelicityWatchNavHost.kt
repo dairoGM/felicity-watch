@@ -1,7 +1,13 @@
 package com.dairoroberto.felicitywatch.ui.nav
 
 import androidx.compose.foundation.layout.padding
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.History
+import androidx.compose.material.icons.filled.NotificationsActive
+import androidx.compose.material.icons.filled.Settings
+import androidx.compose.material.icons.filled.SpaceDashboard
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.Icon
 import androidx.compose.material3.NavigationBar
 import androidx.compose.material3.NavigationBarItem
 import androidx.compose.material3.Scaffold
@@ -11,6 +17,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.navigation.NavGraph.Companion.findStartDestination
 import androidx.navigation.compose.NavHost
@@ -22,12 +29,13 @@ import com.dairoroberto.felicitywatch.ui.dashboard.DashboardScreen
 import com.dairoroberto.felicitywatch.ui.history.HistoryScreen
 import com.dairoroberto.felicitywatch.ui.onboarding.OnboardingScreen
 import com.dairoroberto.felicitywatch.ui.settings.SettingsScreen
+import com.dairoroberto.felicitywatch.ui.theme.ThemeViewModel
 
-private sealed class MainDestination(val route: String, val label: String) {
-    data object Dashboard : MainDestination("dashboard", "Panel")
-    data object Alerts : MainDestination("alerts", "Alertas")
-    data object History : MainDestination("history", "Historial")
-    data object Settings : MainDestination("settings", "Ajustes")
+private sealed class MainDestination(val route: String, val label: String, val icon: ImageVector) {
+    data object Dashboard : MainDestination("dashboard", "Panel", Icons.Default.SpaceDashboard)
+    data object Alerts : MainDestination("alerts", "Alertas", Icons.Default.NotificationsActive)
+    data object History : MainDestination("history", "Historial", Icons.Default.History)
+    data object Settings : MainDestination("settings", "Ajustes", Icons.Default.Settings)
 }
 
 private val bottomDestinations = listOf(
@@ -39,7 +47,10 @@ private val bottomDestinations = listOf(
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun FelicityWatchNavHost(rootViewModel: RootViewModel = hiltViewModel()) {
+fun FelicityWatchNavHost(
+    rootViewModel: RootViewModel = hiltViewModel(),
+    themeViewModel: ThemeViewModel = hiltViewModel()
+) {
     val onboardingCompleted by rootViewModel.onboardingCompleted.collectAsState()
 
     if (!onboardingCompleted) {
@@ -48,6 +59,7 @@ fun FelicityWatchNavHost(rootViewModel: RootViewModel = hiltViewModel()) {
     }
 
     val navController = rememberNavController()
+    val darkModeEnabled by themeViewModel.darkModeEnabled.collectAsState()
 
     Scaffold(
         topBar = { TopAppBar(title = { Text("Felicity Watch") }) },
@@ -68,7 +80,7 @@ fun FelicityWatchNavHost(rootViewModel: RootViewModel = hiltViewModel()) {
                                 restoreState = true
                             }
                         },
-                        icon = {},
+                        icon = { Icon(destination.icon, contentDescription = destination.label) },
                         label = { Text(destination.label) }
                     )
                 }
@@ -83,7 +95,13 @@ fun FelicityWatchNavHost(rootViewModel: RootViewModel = hiltViewModel()) {
             composable(MainDestination.Dashboard.route) { DashboardScreen() }
             composable(MainDestination.Alerts.route) { AlertsScreen() }
             composable(MainDestination.History.route) { HistoryScreen() }
-            composable(MainDestination.Settings.route) { SettingsScreen() }
+            composable(MainDestination.Settings.route) {
+                SettingsScreen(
+                    darkModeEnabled = darkModeEnabled,
+                    onToggleDarkMode = themeViewModel::setDarkMode,
+                    onLoggedOut = { rootViewModel.resetOnboarding() }
+                )
+            }
         }
     }
 }

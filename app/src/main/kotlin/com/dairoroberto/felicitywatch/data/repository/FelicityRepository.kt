@@ -36,11 +36,17 @@ class FelicityRepository @Inject constructor(
     private var batterySerial: String? = null
 
     private suspend fun ensureDevicesResolved(username: String, password: String) {
-        if (inverterSerial != null || batterySerial != null) return
+        // OJO: reintentar mientras falte CUALQUIERA de los dos seriales, no
+        // solo cuando falten ambos — si la cuenta devuelve el inversor pero
+        // todavía no la batería (o viceversa) en el primer listado, antes se
+        // dejaba de reintentar para siempre y ese dispositivo nunca se leía.
+        if (inverterSerial != null && batterySerial != null) return
 
         val devices = apiClient.listDevices(username, password).data?.dataList.orEmpty()
-        inverterSerial = devices.firstOrNull { it.deviceType?.uppercase() == DeviceDto.TYPE_INVERTER }?.deviceSn
-        batterySerial = devices.firstOrNull { it.deviceType?.uppercase() == DeviceDto.TYPE_BATTERY }?.deviceSn
+        inverterSerial = inverterSerial
+            ?: devices.firstOrNull { it.deviceType?.uppercase() == DeviceDto.TYPE_INVERTER }?.deviceSn
+        batterySerial = batterySerial
+            ?: devices.firstOrNull { it.deviceType?.uppercase() == DeviceDto.TYPE_BATTERY }?.deviceSn
     }
 
     suspend fun fetchLatestReading(): SystemReading {

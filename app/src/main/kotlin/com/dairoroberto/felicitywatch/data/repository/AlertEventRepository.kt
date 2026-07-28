@@ -13,4 +13,6 @@ class AlertEventRepository @Inject constructor(
     fun observeEvents(): Flow<List<AlertEventEntity>> = dao.observeAll()
 
     suspend fun record(event: AlertEventEntity): Long = dao.insert(event)
+
+    suspend fun clearAll() = dao.deleteAll()
 }

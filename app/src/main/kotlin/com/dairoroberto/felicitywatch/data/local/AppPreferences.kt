@@ -1,6 +1,7 @@
 package com.dairoroberto.felicitywatch.data.local
 
 import android.content.Context
+import androidx.datastore.preferences.core.booleanPreferencesKey
 import androidx.datastore.preferences.core.edit
 import androidx.datastore.preferences.core.longPreferencesKey
 import androidx.datastore.preferences.core.stringPreferencesKey
@@ -19,6 +20,9 @@ class AppPreferences @Inject constructor(@ApplicationContext private val context
     val lastReadingEpochMillis: Flow<Long?> = context.dataStore.data.map { it[KEY_LAST_READING_MILLIS] }
     val lastGridStateName: Flow<String?> = context.dataStore.data.map { it[KEY_LAST_GRID_STATE] }
 
+    /** Preferencia de tema: null = seguir al sistema, true = oscuro forzado, false = claro forzado. */
+    val darkModeEnabled: Flow<Boolean?> = context.dataStore.data.map { it[KEY_DARK_MODE] }
+
     suspend fun setLastReadingNow(epochMillis: Long) {
         context.dataStore.edit { it[KEY_LAST_READING_MILLIS] = epochMillis }
     }
@@ -27,8 +31,17 @@ class AppPreferences @Inject constructor(@ApplicationContext private val context
         context.dataStore.edit { it[KEY_LAST_GRID_STATE] = name }
     }
 
+    suspend fun setDarkModeEnabled(enabled: Boolean) {
+        context.dataStore.edit { it[KEY_DARK_MODE] = enabled }
+    }
+
+    suspend fun clearAll() {
+        context.dataStore.edit { it.clear() }
+    }
+
     companion object {
         private val KEY_LAST_READING_MILLIS = longPreferencesKey("last_reading_epoch_millis")
         private val KEY_LAST_GRID_STATE = stringPreferencesKey("last_grid_state")
+        private val KEY_DARK_MODE = booleanPreferencesKey("dark_mode_enabled")
     }
 }

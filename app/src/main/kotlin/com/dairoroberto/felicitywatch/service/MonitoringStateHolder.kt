@@ -13,6 +13,13 @@ import javax.inject.Singleton
  * Puente en memoria entre el Foreground Service (productor) y la UI
  * Compose (consumidor) para reflejar el estado en vivo del panel general
  * sin depender de que la Activity esté abierta cuando ocurre una lectura.
+ *
+ * Distingue dos nociones de "estado de red" a propósito:
+ * - [liveGridState]: lo que dice la última lectura cruda, sin debounce —
+ *   es lo que se muestra en el Panel para que nunca contradiga la realidad.
+ * - [confirmedGridState] / [lastGridChangeAt]: el estado ya debounced que
+ *   efectivamente disparó una alerta (guía sección 5), usado solo para el
+ *   texto "Último cambio hace X".
  */
 @Singleton
 class MonitoringStateHolder @Inject constructor() {
@@ -22,8 +29,11 @@ class MonitoringStateHolder @Inject constructor() {
     private val _batteryReading = MutableStateFlow<BatteryReading?>(null)
     val batteryReading: StateFlow<BatteryReading?> = _batteryReading
 
-    private val _gridState = MutableStateFlow(GridState.UNKNOWN)
-    val gridState: StateFlow<GridState> = _gridState
+    private val _liveGridState = MutableStateFlow(GridState.UNKNOWN)
+    val liveGridState: StateFlow<GridState> = _liveGridState
+
+    private val _confirmedGridState = MutableStateFlow(GridState.UNKNOWN)
+    val confirmedGridState: StateFlow<GridState> = _confirmedGridState
 
     private val _lastGridChangeAt = MutableStateFlow<Instant?>(null)
     val lastGridChangeAt: StateFlow<Instant?> = _lastGridChangeAt
@@ -34,14 +44,25 @@ class MonitoringStateHolder @Inject constructor() {
     private val _lastErrorMessage = MutableStateFlow<String?>(null)
     val lastErrorMessage: StateFlow<String?> = _lastErrorMessage
 
-    fun updateReadings(inverter: InverterReading?, battery: BatteryReading?) {
+    private val _lastSuccessfulReadingAt = MutableStateFlow<Instant?>(null)
+    val lastSuccessfulReadingAt: StateFlow<Instant?> = _lastSuccessfulReadingAt
+
+    private val _consecutiveFailures = MutableStateFlow(0)
+    val consecutiveFailures: StateFlow<Int> = _consecutiveFailures
+
+    fun updateReadings(inverter: InverterReading?, battery: BatteryReading?, now: Instant) {
         _inverterReading.value = inverter
         _batteryReading.value = battery
         _lastErrorMessage.value = null
+        _lastSuccessfulReadingAt.value = now
+        _consecutiveFailures.value = 0
+
+        val gridPower = inverter?.gridPowerWatts
+        _liveGridState.value = if (gridPower == null || gridPower < 1) GridState.OFFLINE else GridState.ONLINE
     }
 
     fun updateConfirmedGridState(state: GridState, changedAt: Instant) {
-        _gridState.value = state
+        _confirmedGridState.value = state
         _lastGridChangeAt.value = changedAt
     }
 
@@ -49,7 +70,8 @@ class MonitoringStateHolder @Inject constructor() {
         _serviceRunning.value = running
     }
 
-    fun setError(message: String?) {
+    fun reportFailure(message: String?, failureCount: Int) {
         _lastErrorMessage.value = message
+        _consecutiveFailures.value = failureCount
     }
 }

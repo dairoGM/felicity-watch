@@ -18,4 +18,9 @@ class RootViewModel @Inject constructor(
     fun completeOnboarding() {
         _onboardingCompleted.value = true
     }
+
+    /** Usado por cierre de sesión / restablecimiento de fábrica en Ajustes. */
+    fun resetOnboarding() {
+        _onboardingCompleted.value = false
+    }
 }

@@ -23,4 +23,7 @@ interface AlertRuleDao {
 
     @Update
     suspend fun update(rule: AlertRuleEntity)
+
+    @Query("DELETE FROM alert_rules")
+    suspend fun deleteAll()
 }

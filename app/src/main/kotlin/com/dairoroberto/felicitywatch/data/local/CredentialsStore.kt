@@ -47,6 +47,15 @@ class CredentialsStore @Inject constructor(
         prefs.edit().remove(KEY_FSOLAR_USER).remove(KEY_FSOLAR_PASS).apply()
     }
 
+    fun clearWhatsappConfig() {
+        prefs.edit().remove(KEY_WHATSAPP_PHONE).remove(KEY_CALLMEBOT_KEY).apply()
+    }
+
+    /** Cierre de sesión / restablecimiento de fábrica: borra todas las credenciales guardadas. */
+    fun clearAll() {
+        prefs.edit().clear().apply()
+    }
+
     companion object {
         private const val KEY_FSOLAR_USER = "fsolar_username"
         private const val KEY_FSOLAR_PASS = "fsolar_password"

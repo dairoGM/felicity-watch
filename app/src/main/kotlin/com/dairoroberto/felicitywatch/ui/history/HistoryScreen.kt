@@ -21,10 +21,7 @@ import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import com.dairoroberto.felicitywatch.data.local.AlertEventEntity
 import com.dairoroberto.felicitywatch.domain.model.AlertRuleType
-import com.dairoroberto.felicitywatch.ui.theme.Green
-import com.dairoroberto.felicitywatch.ui.theme.PanelSurface2
-import com.dairoroberto.felicitywatch.ui.theme.TextLow
-import com.dairoroberto.felicitywatch.ui.theme.TextMid
+import com.dairoroberto.felicitywatch.ui.theme.LocalFelicityColors
 import java.time.ZoneId
 import java.time.format.DateTimeFormatter
 import java.time.format.FormatStyle
@@ -41,7 +38,7 @@ fun HistoryScreen(viewModel: HistoryViewModel = hiltViewModel()) {
             Text(
                 "Todavía no se ha disparado ninguna alerta.",
                 style = MaterialTheme.typography.bodyMedium,
-                color = TextMid
+                color = LocalFelicityColors.current.textMid
             )
         }
         return
@@ -65,8 +62,9 @@ private fun titleFor(type: AlertRuleType): String = when (type) {
 @Composable
 private fun HistoryEventCard(event: AlertEventEntity) {
     val formatter = DateTimeFormatter.ofLocalizedDateTime(FormatStyle.SHORT).withLocale(Locale("es", "ES"))
+    val colors = LocalFelicityColors.current
 
-    Card(colors = CardDefaults.cardColors(containerColor = PanelSurface2), shape = RoundedCornerShape(11.dp)) {
+    Card(colors = CardDefaults.cardColors(containerColor = colors.surface2), shape = RoundedCornerShape(11.dp)) {
         Column(Modifier.padding(13.dp)) {
             Row(
                 modifier = Modifier.fillMaxWidth(),
@@ -76,10 +74,10 @@ private fun HistoryEventCard(event: AlertEventEntity) {
                 Text(
                     formatter.format(event.triggeredAt.atZone(ZoneId.systemDefault())),
                     style = MaterialTheme.typography.labelSmall,
-                    color = TextLow
+                    color = colors.textLow
                 )
             }
-            Text(event.message, style = MaterialTheme.typography.bodyMedium, color = TextMid, modifier = Modifier.padding(top = 4.dp))
+            Text(event.message, style = MaterialTheme.typography.bodyMedium, color = colors.textMid, modifier = Modifier.padding(top = 4.dp))
 
             Row(modifier = Modifier.padding(top = 8.dp), horizontalArrangement = Arrangement.spacedBy(14.dp)) {
                 ChannelStatus("Voz", event.voiceSent)
@@ -101,8 +99,9 @@ private fun HistoryEventCard(event: AlertEventEntity) {
 
 @Composable
 private fun ChannelStatus(label: String, success: Boolean) {
+    val colors = LocalFelicityColors.current
     Row {
-        Text(if (success) "✓" else "✗", color = if (success) Green else MaterialTheme.colorScheme.error)
-        Text(" $label", style = MaterialTheme.typography.labelSmall, color = TextMid)
+        Text(if (success) "✓" else "✗", color = if (success) colors.green else MaterialTheme.colorScheme.error)
+        Text(" $label", style = MaterialTheme.typography.labelSmall, color = colors.textMid)
     }
 }
