@@ -84,8 +84,11 @@ class SettingsViewModel @Inject constructor(
     }
 
     fun saveFsolarCredentials() {
-        credentialsStore.fsolarUsername = _formState.value.fsolarUsername
-        credentialsStore.fsolarPassword = _formState.value.fsolarPassword
+        // Recortar espacios accidentales (autocompletar/autocorrección del
+        // teclado suele agregar uno al final) — una de las causas más
+        // comunes de "contraseña incorrecta" cuando la cuenta sí es válida.
+        credentialsStore.fsolarUsername = _formState.value.fsolarUsername.trim()
+        credentialsStore.fsolarPassword = _formState.value.fsolarPassword.trim()
         felicityRepository.resetDeviceCache()
         emit("Credenciales de FSolar guardadas")
     }

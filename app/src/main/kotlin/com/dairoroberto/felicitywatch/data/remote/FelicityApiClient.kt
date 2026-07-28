@@ -87,7 +87,14 @@ class FelicityApiClient @Inject constructor(
                 }
             }
 
-            throw FelicityAuthException("Login falló en todas las variantes soportadas: ${errors.joinToString(" | ")}")
+            // No se expone la contraseña, pero sí su longitud: un espacio o
+            // carácter de más/de menos aquí (vs. la contraseña real que el
+            // usuario usa en FSolar/Home Assistant) es la causa más probable
+            // de un "Wrong password" cuando las credenciales sí son correctas.
+            throw FelicityAuthException(
+                "Login falló en todas las variantes soportadas para usuario de ${username.length} car. y " +
+                    "contraseña de ${password.length} car.: ${errors.joinToString(" | ")}"
+            )
         }
     }
 

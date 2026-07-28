@@ -43,11 +43,12 @@ class OnboardingViewModel @Inject constructor(
 
     fun saveCredentials() {
         val state = _formState.value
-        credentialsStore.fsolarUsername = state.username
-        credentialsStore.fsolarPassword = state.password
+        // Recortar espacios accidentales (ver SettingsViewModel.saveFsolarCredentials).
+        credentialsStore.fsolarUsername = state.username.trim()
+        credentialsStore.fsolarPassword = state.password.trim()
         if (state.whatsappPhone.isNotBlank() && state.callMeBotApiKey.isNotBlank()) {
-            credentialsStore.whatsappPhone = state.whatsappPhone
-            credentialsStore.callMeBotApiKey = state.callMeBotApiKey
+            credentialsStore.whatsappPhone = state.whatsappPhone.trim()
+            credentialsStore.callMeBotApiKey = state.callMeBotApiKey.trim()
         }
     }
 }
