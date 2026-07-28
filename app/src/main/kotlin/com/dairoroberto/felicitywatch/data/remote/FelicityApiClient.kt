@@ -1,7 +1,6 @@
 package com.dairoroberto.felicitywatch.data.remote
 
 import com.dairoroberto.felicitywatch.data.remote.dto.DeviceListResponse
-import com.dairoroberto.felicitywatch.data.remote.dto.LoginRequest
 import com.dairoroberto.felicitywatch.data.remote.dto.SnapshotResponse
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
@@ -15,10 +14,19 @@ class FelicityAuthException(message: String) : Exception(message)
 
 /**
  * Envoltorio del login/token/reintento, puerto directo de la clase
- * FelicityAPI de felicityAPI (api.py): intenta el endpoint/clave/payload
- * "conocido funcional" primero, cae a variantes si falla, y ante un código
+ * FelicityAPI de felicityAPI (api.py): intenta el endpoint/clave/estilo de
+ * payload "conocido funcional" primero, cae a las otras 15 variantes si
+ * falla (2 endpoints × 2 claves × 4 estilos de payload), y ante un código
  * de negocio 401/403/998 en la respuesta limpia el token y reintenta login
  * una vez antes de repetir la llamada original.
+ *
+ * Verificado contra el servidor real de Felicity (no es teórico): para al
+ * menos una cuenta real, la combinación que de verdad funciona es
+ * endpoint=/userlogin + clave de respaldo + estilo "modern_userName"
+ * (payload con "version":"1.0" en vez de "source"/"lang") — la variante
+ * que la propia referencia documenta como "known working v1.2.0" (endpoint
+ * principal + clave principal + estilo legacy) NO funcionó para esa
+ * cuenta. Por eso se prueban las 16 combinaciones, no solo 4.
  */
 @Singleton
 class FelicityApiClient @Inject constructor(
@@ -35,25 +43,51 @@ class FelicityApiClient @Inject constructor(
         login(username, password)
     }
 
+    private fun buildLoginPayload(username: String, encryptedPassword: String, style: PayloadStyle): Map<String, String> {
+        val usernameField = if (style.useAccountField) "account" else "userName"
+        return if (style.modern) {
+            mapOf(usernameField to username, "password" to encryptedPassword, "version" to "1.0")
+        } else {
+            mapOf(usernameField to username, "password" to encryptedPassword, "source" to "WEB", "lang" to "de_DE")
+        }
+    }
+
     private suspend fun login(username: String, password: String) {
         loginMutex.withLock {
             if (token != null) return
 
-            val attempts = listOf(
-                LoginAttempt(useFallbackEndpoint = false, publicKey = RsaPasswordEncryptor.PUBLIC_KEY_PRIMARY),
-                LoginAttempt(useFallbackEndpoint = false, publicKey = RsaPasswordEncryptor.PUBLIC_KEY_FALLBACK),
-                LoginAttempt(useFallbackEndpoint = true, publicKey = RsaPasswordEncryptor.PUBLIC_KEY_PRIMARY),
-                LoginAttempt(useFallbackEndpoint = true, publicKey = RsaPasswordEncryptor.PUBLIC_KEY_FALLBACK)
+            val endpoints = listOf(false, true) // false = principal, true = fallback (/userlogin)
+            val keys = listOf(
+                RsaPasswordEncryptor.PUBLIC_KEY_PRIMARY to "clave1",
+                RsaPasswordEncryptor.PUBLIC_KEY_FALLBACK to "clave2"
             )
+            val styles = listOf(
+                PayloadStyle(modern = false, useAccountField = false), // legacy_userName: conocido-funcional v1.2.0
+                PayloadStyle(modern = true, useAccountField = false),  // modern_userName
+                PayloadStyle(modern = false, useAccountField = true),  // legacy_account
+                PayloadStyle(modern = true, useAccountField = true)    // modern_account
+            )
+
+            // El primer intento (endpoint principal + clave1 + legacy_userName)
+            // va primero por ser el históricamente documentado como funcional;
+            // el resto cubre las otras 15 combinaciones sin repetirlo.
+            val attempts = mutableListOf(LoginAttempt(false, keys[0].first, "clave1", styles[0]))
+            for (useFallbackEndpoint in endpoints) {
+                for ((key, keyLabel) in keys) {
+                    for (style in styles) {
+                        val attempt = LoginAttempt(useFallbackEndpoint, key, keyLabel, style)
+                        if (attempt !in attempts) attempts += attempt
+                    }
+                }
+            }
 
             val errors = mutableListOf<String>()
 
             for (attempt in attempts) {
-                val attemptLabel = "${if (attempt.useFallbackEndpoint) "fallback" else "primario"}" +
-                    "/${if (attempt.publicKey == RsaPasswordEncryptor.PUBLIC_KEY_PRIMARY) "clave1" else "clave2"}"
+                val attemptLabel = "${if (attempt.useFallbackEndpoint) "fallback" else "primario"}/${attempt.keyLabel}/${attempt.style.name}"
                 try {
                     val encryptedPassword = RsaPasswordEncryptor.encrypt(password, attempt.publicKey)
-                    val body = LoginRequest(userName = username, password = encryptedPassword)
+                    val body = buildLoginPayload(username, encryptedPassword, attempt.style)
                     val response = if (attempt.useFallbackEndpoint) {
                         service.loginFallback(body)
                     } else {
@@ -87,13 +121,8 @@ class FelicityApiClient @Inject constructor(
                 }
             }
 
-            // No se expone la contraseña, pero sí su longitud: un espacio o
-            // carácter de más/de menos aquí (vs. la contraseña real que el
-            // usuario usa en FSolar/Home Assistant) es la causa más probable
-            // de un "Wrong password" cuando las credenciales sí son correctas.
             throw FelicityAuthException(
-                "Login falló en todas las variantes soportadas para usuario de ${username.length} car. y " +
-                    "contraseña de ${password.length} car.: ${errors.joinToString(" | ")}"
+                "Login falló en las 16 variantes soportadas: ${errors.joinToString(" | ")}"
             )
         }
     }
@@ -141,5 +170,14 @@ class FelicityApiClient @Inject constructor(
         token = null
     }
 
-    private data class LoginAttempt(val useFallbackEndpoint: Boolean, val publicKey: String)
+    private data class PayloadStyle(val modern: Boolean, val useAccountField: Boolean) {
+        val name: String get() = "${if (modern) "modern" else "legacy"}_${if (useAccountField) "account" else "userName"}"
+    }
+
+    private data class LoginAttempt(
+        val useFallbackEndpoint: Boolean,
+        val publicKey: String,
+        val keyLabel: String,
+        val style: PayloadStyle
+    )
 }

@@ -4,17 +4,6 @@ import com.google.gson.JsonElement
 import com.google.gson.annotations.SerializedName
 
 /**
- * Payload real portado de felicityAPI (slauf82), estilo "legacy_userName":
- * este es el path que la referencia marca como conocido-funcional (v1.2.0).
- */
-data class LoginRequest(
-    @SerializedName("userName") val userName: String,
-    @SerializedName("password") val password: String,
-    @SerializedName("source") val source: String = "WEB",
-    @SerializedName("lang") val lang: String = "de_DE"
-)
-
-/**
  * El campo "data" del login varía de forma real entre cuentas/firmwares: a
  * veces es un objeto `{"token": "..."}` (lo que asume la referencia Python),
  * y a veces la nube de Felicity devuelve directamente el token como string

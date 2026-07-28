@@ -1,7 +1,6 @@
 package com.dairoroberto.felicitywatch.data.remote
 
 import com.dairoroberto.felicitywatch.data.remote.dto.DeviceListResponse
-import com.dairoroberto.felicitywatch.data.remote.dto.LoginRequest
 import com.dairoroberto.felicitywatch.data.remote.dto.LoginResponse
 import com.dairoroberto.felicitywatch.data.remote.dto.SnapshotResponse
 import retrofit2.Response
@@ -17,13 +16,17 @@ import retrofit2.http.POST
  */
 interface FelicityApiService {
 
+    // El body es un mapa (no un data class fijo) porque su forma varía
+    // según la variante de login: "legacy" agrega source/lang, "modern"
+    // agrega version, y el campo de usuario puede ser "userName" o
+    // "account" — ver FelicityApiClient.buildLoginPayload().
     @Headers(
         "Content-Type: application/json",
         "Origin: https://shine.felicitysolar.com",
         "Referer: https://shine.felicitysolar.com/"
     )
     @POST("openApi/sec/login")
-    suspend fun login(@Body body: LoginRequest): Response<LoginResponse>
+    suspend fun login(@Body body: Map<String, String>): Response<LoginResponse>
 
     @Headers(
         "Content-Type: application/json",
@@ -31,7 +34,7 @@ interface FelicityApiService {
         "Referer: https://shine.felicitysolar.com/"
     )
     @POST("userlogin")
-    suspend fun loginFallback(@Body body: LoginRequest): Response<LoginResponse>
+    suspend fun loginFallback(@Body body: Map<String, String>): Response<LoginResponse>
 
     @GET("device/list_device_all_type")
     suspend fun listDevices(
