@@ -156,7 +156,9 @@ class FelicityApiClient @Inject constructor(
     }
 
     suspend fun listDevices(username: String, password: String): DeviceListResponse =
-        requestWithRetry(username, password, { it.code }) { token -> service.listDevices(token) }
+        requestWithRetry(username, password, { it.code }) { token ->
+            service.listDevices(token, DeviceListRequest())
+        }
 
     suspend fun getDeviceSnapshot(username: String, password: String, deviceSn: String): SnapshotResponse =
         requestWithRetry(username, password, { it.code }) { token ->

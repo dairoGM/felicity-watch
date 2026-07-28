@@ -5,7 +5,6 @@ import com.dairoroberto.felicitywatch.data.remote.dto.LoginResponse
 import com.dairoroberto.felicitywatch.data.remote.dto.SnapshotResponse
 import retrofit2.Response
 import retrofit2.http.Body
-import retrofit2.http.GET
 import retrofit2.http.Header
 import retrofit2.http.Headers
 import retrofit2.http.POST
@@ -36,9 +35,15 @@ interface FelicityApiService {
     @POST("userlogin")
     suspend fun loginFallback(@Body body: Map<String, String>): Response<LoginResponse>
 
-    @GET("device/list_device_all_type")
+    // Verificado contra el servidor real: este endpoint devuelve HTTP 405
+    // (Method Not Allowed) con GET — a pesar de que la referencia Python lo
+    // documenta como GET sin body, la nube real de Felicity lo expone como
+    // POST paginado y exige "pageNum"/"pageSize" en el body (si faltan,
+    // responde code=2002006 "pageSize/pageNum no puede estar vacío").
+    @POST("device/list_device_all_type")
     suspend fun listDevices(
         @Header("Authorization") token: String,
+        @Body body: DeviceListRequest,
         @Header("lang") lang: String = "de_DE",
         @Header("source") source: String = "WEB"
     ): Response<DeviceListResponse>
@@ -55,4 +60,9 @@ interface FelicityApiService {
 data class SnapshotRequest(
     val deviceSn: String,
     val dateStr: String
+)
+
+data class DeviceListRequest(
+    val pageNum: Int = 1,
+    val pageSize: Int = 100
 )
