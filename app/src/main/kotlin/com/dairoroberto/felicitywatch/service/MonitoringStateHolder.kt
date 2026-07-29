@@ -56,17 +56,27 @@ class MonitoringStateHolder @Inject constructor() {
     private val _batteryError = MutableStateFlow<String?>(null)
     val batteryError: StateFlow<String?> = _batteryError
 
+    private val _lastInverterRawJson = MutableStateFlow<String?>(null)
+    val lastInverterRawJson: StateFlow<String?> = _lastInverterRawJson
+
+    private val _lastBatteryRawJson = MutableStateFlow<String?>(null)
+    val lastBatteryRawJson: StateFlow<String?> = _lastBatteryRawJson
+
     fun updateReadings(
         inverter: InverterReading?,
         battery: BatteryReading?,
         now: Instant,
         inverterError: String? = null,
-        batteryError: String? = null
+        batteryError: String? = null,
+        inverterRawJson: String? = null,
+        batteryRawJson: String? = null
     ) {
         _inverterReading.value = inverter
         _batteryReading.value = battery
         _inverterError.value = inverterError
         _batteryError.value = batteryError
+        if (inverterRawJson != null) _lastInverterRawJson.value = inverterRawJson
+        if (batteryRawJson != null) _lastBatteryRawJson.value = batteryRawJson
         _lastErrorMessage.value = null
         _lastSuccessfulReadingAt.value = now
         _consecutiveFailures.value = 0

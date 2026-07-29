@@ -52,6 +52,8 @@ class SettingsViewModel @Inject constructor(
 ) : ViewModel() {
 
     val serviceRunning: StateFlow<Boolean> = stateHolder.serviceRunning
+    val lastInverterRawJson: StateFlow<String?> = stateHolder.lastInverterRawJson
+    val lastBatteryRawJson: StateFlow<String?> = stateHolder.lastBatteryRawJson
 
     val pollingIntervalSeconds: StateFlow<Int> = appPreferences.pollingIntervalSeconds
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), AppPreferences.DEFAULT_POLLING_INTERVAL_SECONDS)
@@ -185,6 +187,17 @@ class SettingsViewModel @Inject constructor(
             onDone()
             emit("La app se restableció a los valores de fábrica")
         }
+    }
+
+    /** Diagnóstico sin USB: copia la última respuesta cruda de Felicity para pegarla donde haga falta. */
+    fun copyRawJsonToClipboard(label: String, json: String?) {
+        if (json.isNullOrBlank()) {
+            emit("Todavía no hay una respuesta de $label registrada")
+            return
+        }
+        val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as android.content.ClipboardManager
+        clipboard.setPrimaryClip(android.content.ClipData.newPlainText(label, json))
+        emit("Respuesta de $label copiada al portapapeles")
     }
 
     private fun emit(message: String) {

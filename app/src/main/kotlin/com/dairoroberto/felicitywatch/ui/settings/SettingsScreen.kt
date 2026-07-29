@@ -63,10 +63,18 @@ import com.dairoroberto.felicitywatch.ui.components.PasswordField
 import com.dairoroberto.felicitywatch.ui.components.PhoneField
 import com.dairoroberto.felicitywatch.ui.theme.LocalFelicityColors
 import kotlinx.coroutines.launch
+import java.text.SimpleDateFormat
+import java.util.Date
+import java.util.Locale
 
 /** Alto uniforme para todos los botones de acción de esta pantalla. */
 private val ACTION_BUTTON_HEIGHT = 48.dp
 private val SECTION_CONTENT_SPACING = 12.dp
+
+private fun buildTimestampLabel(): String {
+    val formatter = SimpleDateFormat("yyyy-MM-dd HH:mm", Locale("es", "ES"))
+    return formatter.format(Date(com.dairoroberto.felicitywatch.BuildConfig.BUILD_TIMESTAMP_MILLIS))
+}
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -81,6 +89,8 @@ fun SettingsScreen(
     val serviceRunning by viewModel.serviceRunning.collectAsState()
     val isTestingConnection by viewModel.isTestingConnection.collectAsState()
     val pollingIntervalSeconds by viewModel.pollingIntervalSeconds.collectAsState()
+    val lastInverterRawJson by viewModel.lastInverterRawJson.collectAsState()
+    val lastBatteryRawJson by viewModel.lastBatteryRawJson.collectAsState()
     var batteryExcluded by remember { mutableStateOf(isIgnoringBatteryOptimizations(context)) }
     var showLogoutConfirm by remember { mutableStateOf(false) }
     var showFactoryResetConfirm by remember { mutableStateOf(false) }
@@ -289,6 +299,43 @@ fun SettingsScreen(
                         }
                         Switch(checked = darkModeEnabled, onCheckedChange = onToggleDarkMode)
                     }
+                }
+            }
+
+            item {
+                SectionCard(title = "Diagnóstico") {
+                    Text(
+                        "Copia la última respuesta cruda que Felicity envió para cada equipo — útil para reportar un problema sin conectar el teléfono por USB.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = LocalFelicityColors.current.textMid
+                    )
+                    ActionButton(
+                        text = "Copiar respuesta del inversor",
+                        outlined = true,
+                        onClick = { viewModel.copyRawJsonToClipboard("inversor", lastInverterRawJson) },
+                        modifier = Modifier.padding(top = SECTION_CONTENT_SPACING)
+                    )
+                    ActionButton(
+                        text = "Copiar respuesta de la batería",
+                        outlined = true,
+                        onClick = { viewModel.copyRawJsonToClipboard("batería", lastBatteryRawJson) },
+                        modifier = Modifier.padding(top = SECTION_CONTENT_SPACING)
+                    )
+                }
+            }
+
+            item {
+                SectionCard(title = "Acerca de") {
+                    Text(
+                        "Felicity Watch ${com.dairoroberto.felicitywatch.BuildConfig.VERSION_NAME} (build ${com.dairoroberto.felicitywatch.BuildConfig.VERSION_CODE})",
+                        style = MaterialTheme.typography.bodyMedium
+                    )
+                    Text(
+                        "Compilado: ${buildTimestampLabel()}",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = LocalFelicityColors.current.textMid,
+                        modifier = Modifier.padding(top = 2.dp)
+                    )
                 }
             }
 

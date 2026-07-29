@@ -43,7 +43,15 @@ class RunMonitoringCycleUseCase @Inject constructor(
         val reading = felicityRepository.fetchLatestReading()
         val now = Instant.now()
         appPreferences.setLastReadingNow(now.toEpochMilli())
-        stateHolder.updateReadings(reading.inverter, reading.battery, now, reading.inverterError, reading.batteryError)
+        stateHolder.updateReadings(
+            inverter = reading.inverter,
+            battery = reading.battery,
+            now = now,
+            inverterError = reading.inverterError,
+            batteryError = reading.batteryError,
+            inverterRawJson = reading.inverterRawJson,
+            batteryRawJson = reading.batteryRawJson
+        )
         powerHistoryRepository.record(
             pvPowerWatts = reading.inverter?.pvPowerWatts,
             gridPowerWatts = reading.inverter?.gridPowerWatts,

@@ -17,7 +17,12 @@ data class SystemReading(
     val inverter: InverterReading?,
     val battery: BatteryReading?,
     val inverterError: String? = null,
-    val batteryError: String? = null
+    val batteryError: String? = null,
+    /** JSON crudo del último snapshot de cada dispositivo, para diagnóstico
+     * desde la propia app (Ajustes → "Copiar última respuesta") sin
+     * necesitar conectar el teléfono por USB. */
+    val inverterRawJson: String? = null,
+    val batteryRawJson: String? = null
 )
 
 class FelicityCredentialsMissingException : Exception("No hay credenciales FSolar configuradas")
@@ -78,9 +83,11 @@ class FelicityRepository @Inject constructor(
         // seguir mostrando datos en vez de que toda la lectura quede en null.
         var inverterReading: InverterReading? = null
         var inverterError: String? = null
+        var inverterRawJson: String? = null
         inverterSerial?.let { sn ->
             try {
                 val snapshot = apiClient.getDeviceSnapshot(username, password, sn)
+                inverterRawJson = snapshot.dataObject?.toString()
                 inverterReading = snapshot.dataObject?.let { FelicitySnapshotMapper.toInverterReading(sn, it, now) }
                 if (inverterReading == null) inverterError = "Snapshot del inversor sin datos utilizables"
             } catch (e: Exception) {
@@ -90,9 +97,11 @@ class FelicityRepository @Inject constructor(
 
         var batteryReading: BatteryReading? = null
         var batteryError: String? = null
+        var batteryRawJson: String? = null
         batterySerial?.let { sn ->
             try {
                 val snapshot = apiClient.getDeviceSnapshot(username, password, sn)
+                batteryRawJson = snapshot.dataObject?.toString()
                 batteryReading = snapshot.dataObject?.let { FelicitySnapshotMapper.toBatteryReading(sn, it, now) }
                 if (batteryReading == null) batteryError = "Snapshot de la batería sin datos utilizables"
             } catch (e: Exception) {
@@ -104,7 +113,14 @@ class FelicityRepository @Inject constructor(
             throw FelicityApiException(inverterError ?: batteryError ?: "Sin datos de ningún dispositivo")
         }
 
-        return SystemReading(inverterReading, batteryReading, inverterError, batteryError)
+        return SystemReading(
+            inverter = inverterReading,
+            battery = batteryReading,
+            inverterError = inverterError,
+            batteryError = batteryError,
+            inverterRawJson = inverterRawJson,
+            batteryRawJson = batteryRawJson
+        )
     }
 
     /** Para la vista "Dispositivos": inversor y batería vinculados a la cuenta, con su serial. */

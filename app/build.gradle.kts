@@ -6,6 +6,12 @@ plugins {
     alias(libs.plugins.hilt)
 }
 
+// Milisegundos crudos en vez de formatear aquí: el paquete "java" queda
+// sombreado dentro de la DSL de Android Gradle Plugin (java.time/java.util/
+// java.text no resuelven ahí ni siquiera a nivel de script), así que el
+// formato legible se hace en runtime (ver BuildInfo.kt) a partir de este Long.
+val buildTimestampMillis: Long = System.currentTimeMillis()
+
 android {
     namespace = "com.dairoroberto.felicitywatch"
     compileSdk = 36
@@ -14,8 +20,12 @@ android {
         applicationId = "com.dairoroberto.felicitywatch"
         minSdk = 26
         targetSdk = 36
-        versionCode = 1
-        versionName = "1.0.0"
+        versionCode = 2
+        versionName = "1.1.0"
+
+        // Visible en Ajustes → Acerca de: para confirmar sin ambigüedad qué
+        // build exacto está instalado en el teléfono cuando se reportan bugs.
+        buildConfigField("long", "BUILD_TIMESTAMP_MILLIS", "${buildTimestampMillis}L")
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
