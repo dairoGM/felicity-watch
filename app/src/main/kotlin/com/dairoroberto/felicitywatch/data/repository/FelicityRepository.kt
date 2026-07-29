@@ -86,8 +86,12 @@ class FelicityRepository @Inject constructor(
         var inverterRawJson: String? = null
         inverterSerial?.let { sn ->
             try {
-                val snapshot = apiClient.getDeviceSnapshot(username, password, sn)
-                inverterRawJson = snapshot.dataObject?.toString()
+                val dateStr = apiClient.currentDateStr()
+                val snapshot = apiClient.getDeviceSnapshot(username, password, sn, dateStr)
+                // Se registra también lo que se ENVIÓ (serial + fecha), no solo
+                // lo recibido: si el problema es un parámetro vacío/mal
+                // formado, esto lo muestra sin tener que adivinar.
+                inverterRawJson = "Request: deviceSn=\"$sn\" dateStr=\"$dateStr\"\nResponse data: ${snapshot.dataObject}"
                 inverterReading = snapshot.dataObject?.let { FelicitySnapshotMapper.toInverterReading(sn, it, now) }
                 if (inverterReading == null) inverterError = "Snapshot del inversor sin datos utilizables"
             } catch (e: Exception) {
@@ -100,8 +104,9 @@ class FelicityRepository @Inject constructor(
         var batteryRawJson: String? = null
         batterySerial?.let { sn ->
             try {
-                val snapshot = apiClient.getDeviceSnapshot(username, password, sn)
-                batteryRawJson = snapshot.dataObject?.toString()
+                val dateStr = apiClient.currentDateStr()
+                val snapshot = apiClient.getDeviceSnapshot(username, password, sn, dateStr)
+                batteryRawJson = "Request: deviceSn=\"$sn\" dateStr=\"$dateStr\"\nResponse data: ${snapshot.dataObject}"
                 batteryReading = snapshot.dataObject?.let { FelicitySnapshotMapper.toBatteryReading(sn, it, now) }
                 if (batteryReading == null) batteryError = "Snapshot de la batería sin datos utilizables"
             } catch (e: Exception) {

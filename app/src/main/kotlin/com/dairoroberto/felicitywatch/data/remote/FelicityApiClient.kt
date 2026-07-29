@@ -160,11 +160,16 @@ class FelicityApiClient @Inject constructor(
             service.listDevices(token, DeviceListRequest())
         }
 
-    suspend fun getDeviceSnapshot(username: String, password: String, deviceSn: String): SnapshotResponse =
+    /** [dateStr] se recibe ya calculado (en vez de generarlo aquí) para que el
+     * llamador pueda registrar exactamente qué se envió — clave para
+     * diagnosticar sin adivinar si alguna vez llega vacío o mal formado. */
+    fun currentDateStr(): String = LocalDateTime.now().format(dateFormatter)
+
+    suspend fun getDeviceSnapshot(username: String, password: String, deviceSn: String, dateStr: String): SnapshotResponse =
         requestWithRetry(username, password, { it.code }) { token ->
             service.getDeviceSnapshot(
                 token = token,
-                body = SnapshotRequest(deviceSn = deviceSn, dateStr = LocalDateTime.now().format(dateFormatter))
+                body = SnapshotRequest(deviceSn = deviceSn, dateStr = dateStr)
             )
         }
 
