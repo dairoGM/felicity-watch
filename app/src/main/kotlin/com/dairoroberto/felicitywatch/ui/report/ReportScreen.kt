@@ -1,6 +1,7 @@
 package com.dairoroberto.felicitywatch.ui.report
 
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
@@ -21,11 +22,13 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.rememberDatePickerState
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
@@ -33,6 +36,8 @@ import com.dairoroberto.felicitywatch.ui.components.ChartPoint
 import com.dairoroberto.felicitywatch.ui.components.LineAreaChart
 import com.dairoroberto.felicitywatch.ui.theme.LocalFelicityColors
 import com.dairoroberto.felicitywatch.ui.theme.Teal
+import kotlinx.coroutines.delay
+import java.time.Duration
 import java.time.Instant
 import java.time.LocalDate
 import java.time.ZoneId
@@ -49,6 +54,16 @@ fun ReportScreen(viewModel: ReportViewModel = hiltViewModel()) {
 
     var showStartPicker by remember { mutableStateOf(false) }
     var showEndPicker by remember { mutableStateOf(false) }
+
+    // Igual que en el Panel: "hace X" depende del reloj, no solo de los
+    // datos — sin este tick, el texto de última lectura queda congelado.
+    var now by remember { mutableStateOf(Instant.now()) }
+    LaunchedEffect(Unit) {
+        while (true) {
+            delay(15_000L)
+            now = Instant.now()
+        }
+    }
 
     val dateFormatter = DateTimeFormatter.ofLocalizedDate(FormatStyle.MEDIUM).withLocale(Locale("es", "ES"))
 
@@ -177,12 +192,27 @@ fun ReportScreen(viewModel: ReportViewModel = hiltViewModel()) {
                             modifier = Modifier.padding(top = 24.dp, bottom = 24.dp)
                         )
                     } else {
-                        LineAreaChart(
-                            points = points,
-                            lineColor = Teal,
-                            gridColor = colors.hairline,
-                            modifier = Modifier.padding(top = 10.dp)
-                        )
+                        val maxYValue = points.maxOf { it.y }.coerceAtLeast(1f)
+                        Box(modifier = Modifier.padding(top = 10.dp)) {
+                            LineAreaChart(
+                                points = points,
+                                lineColor = Teal,
+                                gridColor = colors.hairline,
+                                maxYOverride = maxYValue
+                            )
+                            Text(
+                                "${maxYValue.toInt()} W",
+                                style = MaterialTheme.typography.labelSmall,
+                                color = colors.textLow,
+                                modifier = Modifier.align(Alignment.TopStart).padding(4.dp)
+                            )
+                            Text(
+                                "0 W",
+                                style = MaterialTheme.typography.labelSmall,
+                                color = colors.textLow,
+                                modifier = Modifier.align(Alignment.BottomStart).padding(4.dp)
+                            )
+                        }
                         val timeFormatter = DateTimeFormatter.ofLocalizedTime(FormatStyle.SHORT).withLocale(Locale("es", "ES"))
                         val axisLabelCount = 5
                         val minTime = points.minOf { it.x }
@@ -221,6 +251,16 @@ fun ReportScreen(viewModel: ReportViewModel = hiltViewModel()) {
                                 color = colors.textLow
                             )
                         }
+                        val lastReadingMillis = filteredReadings.maxOf { it.timestampEpochMillis }
+                        val lastReadingInstant = Instant.ofEpochMilli(lastReadingMillis)
+                        val secondsAgo = Duration.between(lastReadingInstant, now).seconds.coerceAtLeast(0)
+                        val lastReadingTimeFormatter = DateTimeFormatter.ofLocalizedTime(FormatStyle.SHORT).withLocale(Locale("es", "ES"))
+                        Text(
+                            "Última lectura: ${lastReadingTimeFormatter.format(lastReadingInstant.atZone(ZoneId.systemDefault()))} (hace ${secondsAgo}s)",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = colors.textLow,
+                            modifier = Modifier.padding(top = 10.dp)
+                        )
                     }
                 }
             }

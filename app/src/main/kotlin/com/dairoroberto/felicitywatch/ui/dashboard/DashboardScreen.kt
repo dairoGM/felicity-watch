@@ -276,19 +276,13 @@ private fun missingValueReason(readingExists: Boolean, fieldPresent: Boolean, re
     return "El equipo no reportó este dato en el último ciclo"
 }
 
-/** "hace X min/h" para la última vez que el EQUIPO reportó datos — distinto
- * de cuándo la app consultó; si es viejo, el equipo está desconectado
- * (ej. corte de luz le quita WiFi al collector), no un bug de la app. */
+/** Misma etiqueta que "Última lectura" del primer card (hora exacta + hace
+ * Xs), pero con la hora que el EQUIPO reportó — distinta de cuándo la app
+ * consultó; si es vieja, el equipo está desconectado (ej. corte de luz le
+ * quita WiFi al collector), no un bug de la app. */
 private fun deviceReportedLabel(deviceReportedAt: Instant?, now: Instant): String? {
     if (deviceReportedAt == null) return null
-    val elapsed = Duration.between(deviceReportedAt, now)
-    val minutes = elapsed.toMinutes()
-    val label = when {
-        minutes < 1 -> "hace instantes"
-        minutes < 60 -> "hace $minutes min"
-        else -> "hace ${minutes / 60} h ${minutes % 60} min"
-    }
-    return "Equipo: $label"
+    return "Última lectura: ${readingTimestampLabel(deviceReportedAt, now)}"
 }
 
 @Composable

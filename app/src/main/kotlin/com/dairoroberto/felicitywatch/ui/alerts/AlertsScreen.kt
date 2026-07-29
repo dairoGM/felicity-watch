@@ -28,6 +28,9 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.vector.ImageVector
@@ -99,6 +102,17 @@ private fun AlertRuleCard(
     val colors = LocalFelicityColors.current
     val unit = thresholdUnitFor(rule.type)
 
+    // Estado local desacoplado de "rule": si el TextField lee su valor
+    // directo de "rule.messageTemplate" (que viene de un Flow de Room),
+    // cada tecla dispara una escritura a la BD que reemite un nuevo valor
+    // y sobreescribe el campo a mitad de edición — se pierden letras y el
+    // borrado (backspace) queda roto al escribir rápido. Solo se
+    // re-siembra desde "rule" cuando cambia de tarjeta (rule.id), nunca en
+    // cada recomposición por el eco de la propia escritura.
+    var localMessage by remember(rule.id) { mutableStateOf(rule.messageTemplate) }
+    var localThreshold by remember(rule.id) { mutableStateOf((rule.thresholdValue?.toInt() ?: 0).toString()) }
+    var localDebounce by remember(rule.id) { mutableStateOf(rule.debounceSeconds.toString()) }
+
     Card(
         colors = CardDefaults.cardColors(containerColor = colors.surface2),
         shape = RoundedCornerShape(16.dp),
@@ -129,16 +143,22 @@ private fun AlertRuleCard(
                 horizontalArrangement = Arrangement.spacedBy(10.dp)
             ) {
                 OutlinedTextField(
-                    value = (rule.thresholdValue?.toInt() ?: 0).toString(),
-                    onValueChange = { value -> onThresholdChange(value.toDoubleOrNull()) },
+                    value = localThreshold,
+                    onValueChange = { value ->
+                        localThreshold = value
+                        onThresholdChange(value.toDoubleOrNull())
+                    },
                     label = { Text("Umbral ($unit)") },
                     singleLine = true,
                     keyboardOptions = androidx.compose.foundation.text.KeyboardOptions(keyboardType = KeyboardType.Number),
                     modifier = Modifier.weight(1f)
                 )
                 OutlinedTextField(
-                    value = rule.debounceSeconds.toString(),
-                    onValueChange = { value -> value.toIntOrNull()?.let(onDebounceChange) },
+                    value = localDebounce,
+                    onValueChange = { value ->
+                        localDebounce = value
+                        value.toIntOrNull()?.let(onDebounceChange)
+                    },
                     label = { Text("Espera (s)") },
                     singleLine = true,
                     keyboardOptions = androidx.compose.foundation.text.KeyboardOptions(keyboardType = KeyboardType.Number),
@@ -183,8 +203,11 @@ private fun AlertRuleCard(
             }
 
             OutlinedTextField(
-                value = rule.messageTemplate,
-                onValueChange = onMessageChange,
+                value = localMessage,
+                onValueChange = { value ->
+                    localMessage = value
+                    onMessageChange(value)
+                },
                 label = { Text("Mensaje") },
                 modifier = Modifier
                     .fillMaxWidth()
