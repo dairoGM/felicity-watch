@@ -18,4 +18,7 @@ interface AlertEventDao {
 
     @Query("DELETE FROM alert_events")
     suspend fun deleteAll()
+
+    @Query("DELETE FROM alert_events WHERE id = :id")
+    suspend fun deleteById(id: Long)
 }

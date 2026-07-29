@@ -26,8 +26,13 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
+import kotlinx.coroutines.delay
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -52,6 +57,17 @@ fun DashboardScreen(viewModel: DashboardViewModel = hiltViewModel()) {
     val state by viewModel.uiState.collectAsState()
     val isRefreshing by viewModel.isRefreshing.collectAsState()
 
+    // Los textos "hace X min" dependen del reloj, no solo de los datos: sin
+    // este tick periódico, quedan congelados hasta la próxima lectura real
+    // (o hasta recargar la vista), aunque el tiempo transcurrido sí cambie.
+    var now by remember { mutableStateOf(Instant.now()) }
+    LaunchedEffect(Unit) {
+        while (true) {
+            delay(15_000L)
+            now = Instant.now()
+        }
+    }
+
     PullToRefreshBox(
         isRefreshing = isRefreshing,
         onRefresh = { viewModel.refreshNow() },
@@ -62,9 +78,9 @@ fun DashboardScreen(viewModel: DashboardViewModel = hiltViewModel()) {
             contentPadding = PaddingValues(16.dp),
             verticalArrangement = Arrangement.spacedBy(14.dp)
         ) {
-            item { ConnectionStatusCard(state) }
-            item { GridHeroCard(state) }
-            item { MetricsRow(state) }
+            item { ConnectionStatusCard(state, now) }
+            item { GridHeroCard(state, now) }
+            item { MetricsRow(state, now) }
             item {
                 Text(
                     "CANALES DE AVISO",
@@ -91,7 +107,7 @@ private fun AccentBar(color: androidx.compose.ui.graphics.Color) {
 }
 
 @Composable
-private fun ConnectionStatusCard(state: DashboardUiState) {
+private fun ConnectionStatusCard(state: DashboardUiState, now: Instant) {
     val healthy = state.connectionHealthy
     val colors = LocalFelicityColors.current
 
@@ -127,7 +143,7 @@ private fun ConnectionStatusCard(state: DashboardUiState) {
                     )
                 } else if (healthy && state.lastSuccessfulReadingAt != null) {
                     Text(
-                        "Última lectura: ${readingTimestampLabel(state.lastSuccessfulReadingAt)}",
+                        "Última lectura: ${readingTimestampLabel(state.lastSuccessfulReadingAt, now)}",
                         style = MaterialTheme.typography.labelSmall,
                         color = colors.textMid
                     )
@@ -143,15 +159,15 @@ private fun ConnectionStatusCard(state: DashboardUiState) {
     }
 }
 
-private fun readingTimestampLabel(instant: Instant): String {
+private fun readingTimestampLabel(instant: Instant, now: Instant): String {
     val formatter = DateTimeFormatter.ofLocalizedTime(FormatStyle.SHORT).withLocale(Locale("es", "ES"))
     val time = formatter.format(instant.atZone(ZoneId.systemDefault()))
-    val secondsAgo = Duration.between(instant, Instant.now()).seconds.coerceAtLeast(0)
+    val secondsAgo = Duration.between(instant, now).seconds.coerceAtLeast(0)
     return "$time (hace ${secondsAgo}s)"
 }
 
 @Composable
-private fun GridHeroCard(state: DashboardUiState) {
+private fun GridHeroCard(state: DashboardUiState, now: Instant) {
     val colors = LocalFelicityColors.current
     val online = state.liveGridState == GridState.ONLINE
     val unknown = state.liveGridState == GridState.UNKNOWN
@@ -189,7 +205,7 @@ private fun GridHeroCard(state: DashboardUiState) {
                 modifier = Modifier.padding(top = 10.dp)
             )
             Text(
-                lastChangeLabel(state.lastGridChangeAt),
+                lastChangeLabel(state.lastGridChangeAt, now),
                 style = MaterialTheme.typography.bodySmall,
                 color = colors.textMid,
                 modifier = Modifier.padding(top = 8.dp)
@@ -198,9 +214,9 @@ private fun GridHeroCard(state: DashboardUiState) {
     }
 }
 
-private fun lastChangeLabel(lastChangeAt: Instant?): String {
+private fun lastChangeLabel(lastChangeAt: Instant?, now: Instant): String {
     if (lastChangeAt == null) return "Todavía no se confirmó ningún cambio"
-    val elapsed = Duration.between(lastChangeAt, Instant.now())
+    val elapsed = Duration.between(lastChangeAt, now)
     val hours = elapsed.toHours()
     val minutes = elapsed.toMinutes() % 60
     return when {
@@ -211,7 +227,7 @@ private fun lastChangeLabel(lastChangeAt: Instant?): String {
 }
 
 @Composable
-private fun MetricsRow(state: DashboardUiState) {
+private fun MetricsRow(state: DashboardUiState, now: Instant) {
     Row(horizontalArrangement = Arrangement.spacedBy(10.dp), modifier = Modifier.fillMaxWidth()) {
         val pvPower = state.inverter?.pvPowerWatts
         MetricCard(
@@ -224,7 +240,8 @@ private fun MetricsRow(state: DashboardUiState) {
                 fieldPresent = pvPower != null,
                 readingError = state.inverterError
             ),
-            deviceReportedAt = state.inverter?.deviceReportedAt
+            deviceReportedAt = state.inverter?.deviceReportedAt,
+            now = now
         )
         MetricCard(
             modifier = Modifier.weight(1f),
@@ -236,7 +253,8 @@ private fun MetricsRow(state: DashboardUiState) {
                 fieldPresent = state.battery?.socPercent != null,
                 readingError = state.batteryError
             ),
-            deviceReportedAt = state.battery?.deviceReportedAt
+            deviceReportedAt = state.battery?.deviceReportedAt,
+            now = now
         )
     }
 }
@@ -261,9 +279,9 @@ private fun missingValueReason(readingExists: Boolean, fieldPresent: Boolean, re
 /** "hace X min/h" para la última vez que el EQUIPO reportó datos — distinto
  * de cuándo la app consultó; si es viejo, el equipo está desconectado
  * (ej. corte de luz le quita WiFi al collector), no un bug de la app. */
-private fun deviceReportedLabel(deviceReportedAt: Instant?): String? {
+private fun deviceReportedLabel(deviceReportedAt: Instant?, now: Instant): String? {
     if (deviceReportedAt == null) return null
-    val elapsed = Duration.between(deviceReportedAt, Instant.now())
+    val elapsed = Duration.between(deviceReportedAt, now)
     val minutes = elapsed.toMinutes()
     val label = when {
         minutes < 1 -> "hace instantes"
@@ -280,7 +298,8 @@ private fun MetricCard(
     valueText: String,
     unit: String,
     errorReason: String? = null,
-    deviceReportedAt: Instant? = null
+    deviceReportedAt: Instant? = null,
+    now: Instant = Instant.now()
 ) {
     val colors = LocalFelicityColors.current
     Card(
@@ -308,7 +327,7 @@ private fun MetricCard(
                     modifier = Modifier.padding(top = 4.dp)
                 )
             }
-            deviceReportedLabel(deviceReportedAt)?.let { label ->
+            deviceReportedLabel(deviceReportedAt, now)?.let { label ->
                 Text(
                     label,
                     style = MaterialTheme.typography.labelSmall,

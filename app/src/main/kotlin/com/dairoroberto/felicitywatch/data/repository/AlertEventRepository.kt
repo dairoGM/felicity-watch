@@ -15,4 +15,6 @@ class AlertEventRepository @Inject constructor(
     suspend fun record(event: AlertEventEntity): Long = dao.insert(event)
 
     suspend fun clearAll() = dao.deleteAll()
+
+    suspend fun delete(id: Long) = dao.deleteById(id)
 }

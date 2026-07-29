@@ -161,9 +161,13 @@ fun ReportScreen(viewModel: ReportViewModel = hiltViewModel()) {
                         color = colors.textLow
                     )
 
-                    val points = readings
-                        .filter { it.pvPowerWatts != null }
-                        .map { ChartPoint(it.timestampEpochMillis.toFloat(), it.pvPowerWatts!!.toFloat()) }
+                    // epoch millis no cabe con precisión en Float (13 dígitos vs
+                    // ~7 significativos): se resta el mínimo antes de convertir
+                    // para no perder resolución de tiempo entre puntos.
+                    val filteredReadings = readings.filter { it.pvPowerWatts != null }
+                    val minEpochMillis = filteredReadings.minOfOrNull { it.timestampEpochMillis } ?: 0L
+                    val points = filteredReadings
+                        .map { ChartPoint((it.timestampEpochMillis - minEpochMillis).toFloat(), it.pvPowerWatts!!.toFloat()) }
 
                     if (points.size < 2) {
                         Text(
@@ -179,6 +183,24 @@ fun ReportScreen(viewModel: ReportViewModel = hiltViewModel()) {
                             gridColor = colors.hairline,
                             modifier = Modifier.padding(top = 10.dp)
                         )
+                        val timeFormatter = DateTimeFormatter.ofLocalizedTime(FormatStyle.SHORT).withLocale(Locale("es", "ES"))
+                        val axisLabelCount = 5
+                        val minTime = points.minOf { it.x }
+                        val maxTime = points.maxOf { it.x }.coerceAtLeast(minTime + 1f)
+                        Row(
+                            modifier = Modifier.fillMaxWidth().padding(top = 4.dp),
+                            horizontalArrangement = Arrangement.SpaceBetween
+                        ) {
+                            for (i in 0 until axisLabelCount) {
+                                val fraction = i.toFloat() / (axisLabelCount - 1)
+                                val epochMillis = minEpochMillis + (minTime + (maxTime - minTime) * fraction).toLong()
+                                Text(
+                                    timeFormatter.format(Instant.ofEpochMilli(epochMillis).atZone(ZoneId.systemDefault())),
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = colors.textLow
+                                )
+                            }
+                        }
                         Row(
                             modifier = Modifier.fillMaxWidth().padding(top = 10.dp),
                             horizontalArrangement = Arrangement.SpaceBetween
