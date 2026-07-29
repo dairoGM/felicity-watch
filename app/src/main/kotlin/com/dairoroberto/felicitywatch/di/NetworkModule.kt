@@ -9,8 +9,11 @@ import dagger.Module
 import dagger.Provides
 import dagger.hilt.InstallIn
 import dagger.hilt.components.SingletonComponent
+import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.OkHttpClient
+import okhttp3.RequestBody.Companion.toRequestBody
 import okhttp3.logging.HttpLoggingInterceptor
+import okio.Buffer
 import retrofit2.Retrofit
 import retrofit2.converter.gson.GsonConverterFactory
 import java.util.concurrent.TimeUnit
@@ -35,6 +38,24 @@ object NetworkModule {
             .connectTimeout(15, TimeUnit.SECONDS)
             .readTimeout(15, TimeUnit.SECONDS)
             .writeTimeout(15, TimeUnit.SECONDS)
+            // Verificado contra el servidor real: la nube de Felicity rechaza
+            // el body con "deviceSn: darf nicht null sein" (código 2002006)
+            // cuando el Content-Type incluye "; charset=UTF-8" -- que es lo
+            // que GsonConverterFactory añade por defecto -- aunque el JSON
+            // enviado sea idéntico y válido. Solo acepta "application/json"
+            // a secas. Este interceptor reescribe el body con ese Content-Type
+            // exacto únicamente para el host de Felicity.
+            .addInterceptor { chain ->
+                val request = chain.request()
+                if (request.url.host == "shine-api.felicitysolar.com" && request.body != null) {
+                    val buffer = Buffer()
+                    request.body!!.writeTo(buffer)
+                    val plainJsonBody = buffer.readByteArray().toRequestBody("application/json".toMediaType())
+                    chain.proceed(request.newBuilder().method(request.method, plainJsonBody).build())
+                } else {
+                    chain.proceed(request)
+                }
+            }
             .addInterceptor(RawResponseInterceptor(recorder))
 
         if (BuildConfig.DEBUG) {
