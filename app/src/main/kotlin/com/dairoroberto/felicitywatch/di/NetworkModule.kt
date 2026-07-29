@@ -2,6 +2,8 @@ package com.dairoroberto.felicitywatch.di
 
 import com.dairoroberto.felicitywatch.BuildConfig
 import com.dairoroberto.felicitywatch.data.remote.FelicityApiService
+import com.dairoroberto.felicitywatch.data.remote.RawResponseInterceptor
+import com.dairoroberto.felicitywatch.data.remote.RawResponseRecorder
 import com.dairoroberto.felicitywatch.notification.CallMeBotApi
 import dagger.Module
 import dagger.Provides
@@ -24,11 +26,16 @@ object NetworkModule {
 
     @Provides
     @Singleton
-    fun provideOkHttpClient(): OkHttpClient {
+    fun provideRawResponseRecorder(): RawResponseRecorder = RawResponseRecorder()
+
+    @Provides
+    @Singleton
+    fun provideOkHttpClient(recorder: RawResponseRecorder): OkHttpClient {
         val builder = OkHttpClient.Builder()
             .connectTimeout(15, TimeUnit.SECONDS)
             .readTimeout(15, TimeUnit.SECONDS)
             .writeTimeout(15, TimeUnit.SECONDS)
+            .addInterceptor(RawResponseInterceptor(recorder))
 
         if (BuildConfig.DEBUG) {
             val logging = HttpLoggingInterceptor().apply {

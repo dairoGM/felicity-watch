@@ -4,6 +4,7 @@ import com.dairoroberto.felicitywatch.data.local.CredentialsStore
 import com.dairoroberto.felicitywatch.data.remote.FelicityApiClient
 import com.dairoroberto.felicitywatch.data.remote.FelicityApiException
 import com.dairoroberto.felicitywatch.data.remote.FelicitySnapshotMapper
+import com.dairoroberto.felicitywatch.data.remote.RawResponseRecorder
 import com.dairoroberto.felicitywatch.data.remote.dto.DeviceDto
 import com.dairoroberto.felicitywatch.domain.model.BatteryReading
 import com.dairoroberto.felicitywatch.domain.model.DeviceInfo
@@ -37,7 +38,8 @@ class FelicityCredentialsMissingException : Exception("No hay credenciales FSola
 @Singleton
 class FelicityRepository @Inject constructor(
     private val apiClient: FelicityApiClient,
-    private val credentialsStore: CredentialsStore
+    private val credentialsStore: CredentialsStore,
+    private val rawResponseRecorder: RawResponseRecorder
 ) {
     @Volatile
     private var inverterSerial: String? = null
@@ -88,10 +90,13 @@ class FelicityRepository @Inject constructor(
             try {
                 val dateStr = apiClient.currentDateStr()
                 val snapshot = apiClient.getDeviceSnapshot(username, password, sn, dateStr)
-                // Se registra también lo que se ENVIÓ (serial + fecha), no solo
-                // lo recibido: si el problema es un parámetro vacío/mal
-                // formado, esto lo muestra sin tener que adivinar.
-                inverterRawJson = "Request: deviceSn=\"$sn\" dateStr=\"$dateStr\"\nResponse data: ${snapshot.dataObject}"
+                // Se registra también lo que se ENVIÓ (serial + fecha) y los
+                // bytes crudos tal cual llegaron por red (antes de Gson), no
+                // solo lo que Gson interpretó: si hay discrepancia entre
+                // ambos, confirma que el problema es de parseo y no de red.
+                inverterRawJson = "Request: deviceSn=\"$sn\" dateStr=\"$dateStr\"\n" +
+                    "Raw wire body: ${rawResponseRecorder.lastSnapshotBody}\n" +
+                    "Parsed data: ${snapshot.dataObject}"
                 inverterReading = snapshot.dataObject?.let { FelicitySnapshotMapper.toInverterReading(sn, it, now) }
                 if (inverterReading == null) inverterError = "Snapshot del inversor sin datos utilizables"
             } catch (e: Exception) {
@@ -106,7 +111,9 @@ class FelicityRepository @Inject constructor(
             try {
                 val dateStr = apiClient.currentDateStr()
                 val snapshot = apiClient.getDeviceSnapshot(username, password, sn, dateStr)
-                batteryRawJson = "Request: deviceSn=\"$sn\" dateStr=\"$dateStr\"\nResponse data: ${snapshot.dataObject}"
+                batteryRawJson = "Request: deviceSn=\"$sn\" dateStr=\"$dateStr\"\n" +
+                    "Raw wire body: ${rawResponseRecorder.lastSnapshotBody}\n" +
+                    "Parsed data: ${snapshot.dataObject}"
                 batteryReading = snapshot.dataObject?.let { FelicitySnapshotMapper.toBatteryReading(sn, it, now) }
                 if (batteryReading == null) batteryError = "Snapshot de la batería sin datos utilizables"
             } catch (e: Exception) {
