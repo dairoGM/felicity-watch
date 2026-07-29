@@ -21,7 +21,9 @@ import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharedFlow
+import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import javax.inject.Inject
 
@@ -50,6 +52,9 @@ class SettingsViewModel @Inject constructor(
 ) : ViewModel() {
 
     val serviceRunning: StateFlow<Boolean> = stateHolder.serviceRunning
+
+    val pollingIntervalSeconds: StateFlow<Int> = appPreferences.pollingIntervalSeconds
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), AppPreferences.DEFAULT_POLLING_INTERVAL_SECONDS)
 
     private val _isTestingConnection = MutableStateFlow(false)
     val isTestingConnection: StateFlow<Boolean> = _isTestingConnection
@@ -97,6 +102,13 @@ class SettingsViewModel @Inject constructor(
         credentialsStore.whatsappPhone = _formState.value.whatsappPhone
         credentialsStore.callMeBotApiKey = _formState.value.callMeBotApiKey
         emit("Configuración de WhatsApp guardada")
+    }
+
+    fun setPollingIntervalSeconds(seconds: Int) {
+        viewModelScope.launch {
+            appPreferences.setPollingIntervalSeconds(seconds)
+            emit("Frecuencia de consulta actualizada a ${seconds}s")
+        }
     }
 
     fun restartService() {

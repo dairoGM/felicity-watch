@@ -2,6 +2,7 @@ package com.dairoroberto.felicitywatch.data.repository
 
 import com.dairoroberto.felicitywatch.data.local.CredentialsStore
 import com.dairoroberto.felicitywatch.data.remote.FelicityApiClient
+import com.dairoroberto.felicitywatch.data.remote.FelicityApiException
 import com.dairoroberto.felicitywatch.data.remote.FelicitySnapshotMapper
 import com.dairoroberto.felicitywatch.data.remote.dto.DeviceDto
 import com.dairoroberto.felicitywatch.domain.model.BatteryReading
@@ -14,7 +15,9 @@ import javax.inject.Singleton
 
 data class SystemReading(
     val inverter: InverterReading?,
-    val battery: BatteryReading?
+    val battery: BatteryReading?,
+    val inverterError: String? = null,
+    val batteryError: String? = null
 )
 
 class FelicityCredentialsMissingException : Exception("No hay credenciales FSolar configuradas")
@@ -58,20 +61,50 @@ class FelicityRepository @Inject constructor(
             throw FelicityCredentialsMissingException()
         }
 
-        ensureDevicesResolved(username, password)
+        // No dejar que ensureDevicesResolved() tumbe todo el ciclo: si falla,
+        // se sigue con los seriales que ya se tuvieran en caché (puede haber
+        // ninguno la primera vez, pero un fallo puntual de re-resolución no
+        // debe borrar una lectura que de otro modo funcionaría).
+        try {
+            ensureDevicesResolved(username, password)
+        } catch (e: Exception) {
+            if (inverterSerial == null && batterySerial == null) throw e
+        }
+
         val now = Instant.now()
 
-        val inverterReading = inverterSerial?.let { sn ->
-            val snapshot = apiClient.getDeviceSnapshot(username, password, sn)
-            snapshot.dataObject?.let { FelicitySnapshotMapper.toInverterReading(sn, it, now) }
+        // Inversor y batería se leen de forma AISLADA: si uno falla (timeout,
+        // respuesta inesperada de ESE dispositivo puntual), el otro debe
+        // seguir mostrando datos en vez de que toda la lectura quede en null.
+        var inverterReading: InverterReading? = null
+        var inverterError: String? = null
+        inverterSerial?.let { sn ->
+            try {
+                val snapshot = apiClient.getDeviceSnapshot(username, password, sn)
+                inverterReading = snapshot.dataObject?.let { FelicitySnapshotMapper.toInverterReading(sn, it, now) }
+                if (inverterReading == null) inverterError = "Snapshot del inversor sin datos utilizables"
+            } catch (e: Exception) {
+                inverterError = e.message ?: e.toString()
+            }
+        } ?: run { inverterError = "No se pudo identificar el inversor en la cuenta" }
+
+        var batteryReading: BatteryReading? = null
+        var batteryError: String? = null
+        batterySerial?.let { sn ->
+            try {
+                val snapshot = apiClient.getDeviceSnapshot(username, password, sn)
+                batteryReading = snapshot.dataObject?.let { FelicitySnapshotMapper.toBatteryReading(sn, it, now) }
+                if (batteryReading == null) batteryError = "Snapshot de la batería sin datos utilizables"
+            } catch (e: Exception) {
+                batteryError = e.message ?: e.toString()
+            }
+        } ?: run { batteryError = "No se pudo identificar la batería en la cuenta" }
+
+        if (inverterReading == null && batteryReading == null) {
+            throw FelicityApiException(inverterError ?: batteryError ?: "Sin datos de ningún dispositivo")
         }
 
-        val batteryReading = batterySerial?.let { sn ->
-            val snapshot = apiClient.getDeviceSnapshot(username, password, sn)
-            snapshot.dataObject?.let { FelicitySnapshotMapper.toBatteryReading(sn, it, now) }
-        }
-
-        return SystemReading(inverterReading, batteryReading)
+        return SystemReading(inverterReading, batteryReading, inverterError, batteryError)
     }
 
     /** Para la vista "Dispositivos": inversor y batería vinculados a la cuenta, con su serial. */

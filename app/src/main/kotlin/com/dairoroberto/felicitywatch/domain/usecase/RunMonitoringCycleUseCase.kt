@@ -5,6 +5,7 @@ import com.dairoroberto.felicitywatch.data.local.CredentialsStore
 import com.dairoroberto.felicitywatch.data.repository.AlertRuleRepository
 import com.dairoroberto.felicitywatch.data.repository.FelicityCredentialsMissingException
 import com.dairoroberto.felicitywatch.data.repository.FelicityRepository
+import com.dairoroberto.felicitywatch.data.repository.PowerHistoryRepository
 import com.dairoroberto.felicitywatch.data.repository.SystemReading
 import com.dairoroberto.felicitywatch.domain.model.AlertRuleType
 import com.dairoroberto.felicitywatch.domain.model.GridState
@@ -31,7 +32,8 @@ class RunMonitoringCycleUseCase @Inject constructor(
     private val dispatchAlertUseCase: DispatchAlertUseCase,
     private val appPreferences: AppPreferences,
     private val credentialsStore: CredentialsStore,
-    private val stateHolder: MonitoringStateHolder
+    private val stateHolder: MonitoringStateHolder,
+    private val powerHistoryRepository: PowerHistoryRepository
 ) {
     suspend fun run(): SystemReading {
         if (!credentialsStore.hasFsolarCredentials()) {
@@ -41,7 +43,13 @@ class RunMonitoringCycleUseCase @Inject constructor(
         val reading = felicityRepository.fetchLatestReading()
         val now = Instant.now()
         appPreferences.setLastReadingNow(now.toEpochMilli())
-        stateHolder.updateReadings(reading.inverter, reading.battery, now)
+        stateHolder.updateReadings(reading.inverter, reading.battery, now, reading.inverterError, reading.batteryError)
+        powerHistoryRepository.record(
+            pvPowerWatts = reading.inverter?.pvPowerWatts,
+            gridPowerWatts = reading.inverter?.gridPowerWatts,
+            socPercent = reading.battery?.socPercent,
+            now = now
+        )
 
         val enabledRules = alertRuleRepository.getEnabledRules()
         val triggers = evaluateAlertRulesUseCase.evaluate(enabledRules, reading, now)

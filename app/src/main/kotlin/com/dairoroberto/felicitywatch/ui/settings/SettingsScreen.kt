@@ -30,6 +30,8 @@ import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.FilterChip
+import androidx.compose.material3.FilterChipDefaults
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
@@ -71,6 +73,7 @@ fun SettingsScreen(
     val formState by viewModel.formState.collectAsState()
     val serviceRunning by viewModel.serviceRunning.collectAsState()
     val isTestingConnection by viewModel.isTestingConnection.collectAsState()
+    val pollingIntervalSeconds by viewModel.pollingIntervalSeconds.collectAsState()
     var batteryExcluded by remember { mutableStateOf(isIgnoringBatteryOptimizations(context)) }
     var showLogoutConfirm by remember { mutableStateOf(false) }
     var showFactoryResetConfirm by remember { mutableStateOf(false) }
@@ -219,6 +222,34 @@ fun SettingsScreen(
                         },
                         modifier = Modifier.padding(top = 10.dp)
                     ) { Text("Solicitar exclusión") }
+                }
+            }
+
+            item {
+                SectionCard(title = "Frecuencia de consulta") {
+                    Text(
+                        "Cada cuánto se consulta a Felicity para saber si se fue/llegó la corriente o cambió la generación PV. Un intervalo más corto detecta cambios más rápido pero consume más batería y datos.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = LocalFelicityColors.current.textMid
+                    )
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(top = 10.dp),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        listOf(15, 30, 60, 120, 300).forEach { seconds ->
+                            val label = if (seconds < 60) "${seconds}s" else "${seconds / 60}min"
+                            FilterChip(
+                                selected = pollingIntervalSeconds == seconds,
+                                onClick = { viewModel.setPollingIntervalSeconds(seconds) },
+                                label = { Text(label) },
+                                colors = FilterChipDefaults.filterChipColors(
+                                    selectedContainerColor = LocalFelicityColors.current.tealDim
+                                )
+                            )
+                        }
+                    }
                 }
             }
 

@@ -7,14 +7,15 @@ import com.dairoroberto.felicitywatch.domain.model.AlertRuleType
 import com.dairoroberto.felicitywatch.domain.model.ComparisonOperator
 
 @Database(
-    entities = [AlertRuleEntity::class, AlertEventEntity::class],
-    version = 1,
+    entities = [AlertRuleEntity::class, AlertEventEntity::class, PowerReadingEntity::class],
+    version = 2,
     exportSchema = false
 )
 @TypeConverters(Converters::class)
 abstract class AppDatabase : RoomDatabase() {
     abstract fun alertRuleDao(): AlertRuleDao
     abstract fun alertEventDao(): AlertEventDao
+    abstract fun powerReadingDao(): PowerReadingDao
 
     companion object {
         const val DATABASE_NAME = "felicity_watch.db"

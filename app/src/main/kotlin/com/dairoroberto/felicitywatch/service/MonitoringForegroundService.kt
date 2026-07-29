@@ -6,6 +6,7 @@ import android.app.Service
 import android.content.Intent
 import android.os.IBinder
 import androidx.core.app.NotificationCompat
+import com.dairoroberto.felicitywatch.data.local.AppPreferences
 import com.dairoroberto.felicitywatch.data.local.CredentialsStore
 import com.dairoroberto.felicitywatch.domain.usecase.RunMonitoringCycleUseCase
 import com.dairoroberto.felicitywatch.domain.usecase.describeMonitoringError
@@ -17,6 +18,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import java.time.Duration
 import java.time.Instant
@@ -38,6 +40,7 @@ class MonitoringForegroundService : Service() {
     @Inject lateinit var runMonitoringCycleUseCase: RunMonitoringCycleUseCase
     @Inject lateinit var credentialsStore: CredentialsStore
     @Inject lateinit var stateHolder: MonitoringStateHolder
+    @Inject lateinit var appPreferences: AppPreferences
 
     private val serviceScope = CoroutineScope(Dispatchers.IO + Job())
     private var pollingJob: Job? = null
@@ -65,7 +68,8 @@ class MonitoringForegroundService : Service() {
         pollingJob = serviceScope.launch {
             while (true) {
                 runCycle()
-                delay(POLLING_INTERVAL_MILLIS)
+                val intervalSeconds = appPreferences.pollingIntervalSeconds.first()
+                delay(intervalSeconds * 1000L)
             }
         }
     }
@@ -145,7 +149,6 @@ class MonitoringForegroundService : Service() {
 
     companion object {
         const val NOTIFICATION_ID = 1001
-        const val POLLING_INTERVAL_MILLIS = 30_000L
         const val TICKER_INTERVAL_MILLIS = 5_000L
         const val MAX_CONSECUTIVE_FAILURES_BEFORE_WARNING = 5
     }

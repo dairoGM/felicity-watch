@@ -36,9 +36,12 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.hilt.navigation.compose.hiltViewModel
 import com.dairoroberto.felicitywatch.domain.model.GridState
+import com.dairoroberto.felicitywatch.ui.components.ChartPoint
+import com.dairoroberto.felicitywatch.ui.components.LineAreaChart
 import com.dairoroberto.felicitywatch.ui.theme.JetBrainsMonoFamily
 import com.dairoroberto.felicitywatch.ui.theme.LocalFelicityColors
 import com.dairoroberto.felicitywatch.ui.theme.SpaceGroteskFamily
+import com.dairoroberto.felicitywatch.ui.theme.Teal
 import java.time.Duration
 import java.time.Instant
 import java.time.ZoneId
@@ -65,6 +68,7 @@ fun DashboardScreen(viewModel: DashboardViewModel = hiltViewModel()) {
             item { ConnectionStatusCard(state) }
             item { GridHeroCard(state) }
             item { MetricsRow(state) }
+            item { GenerationChartCard() }
             item {
                 Text(
                     "CANALES DE AVISO",
@@ -211,25 +215,91 @@ private fun lastChangeLabel(lastChangeAt: Instant?): String {
 }
 
 @Composable
+private fun GenerationChartCard(viewModel: GenerationChartViewModel = hiltViewModel()) {
+    val readings by viewModel.last24Hours.collectAsState()
+    val colors = LocalFelicityColors.current
+
+    Card(
+        colors = CardDefaults.cardColors(containerColor = colors.surface2),
+        shape = RoundedCornerShape(16.dp),
+        elevation = CardDefaults.cardElevation(defaultElevation = 1.dp),
+        modifier = Modifier.fillMaxWidth()
+    ) {
+        Column(Modifier.padding(16.dp)) {
+            Text(
+                "GENERACIÓN PV · ÚLTIMAS 24 H",
+                style = MaterialTheme.typography.labelSmall,
+                color = colors.textLow
+            )
+
+            val points = readings
+                .filter { it.pvPowerWatts != null }
+                .map { ChartPoint(it.timestampEpochMillis.toFloat(), it.pvPowerWatts!!.toFloat()) }
+
+            if (points.size < 2) {
+                Text(
+                    "Todavía no hay suficiente historial — vuelve en unos minutos.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = colors.textMid,
+                    modifier = Modifier.padding(top = 24.dp, bottom = 24.dp)
+                )
+            } else {
+                LineAreaChart(
+                    points = points,
+                    lineColor = Teal,
+                    gridColor = colors.hairline,
+                    modifier = Modifier.padding(top = 10.dp)
+                )
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(top = 6.dp),
+                    horizontalArrangement = Arrangement.SpaceBetween
+                ) {
+                    val timeFormatter = DateTimeFormatter.ofPattern("HH:mm")
+                    Text(
+                        timeFormatter.format(Instant.ofEpochMilli(points.first().x.toLong()).atZone(ZoneId.systemDefault())),
+                        style = MaterialTheme.typography.labelSmall,
+                        color = colors.textLow
+                    )
+                    Text(
+                        "máx ${points.maxOf { it.y }.toInt()} W",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = colors.textLow
+                    )
+                    Text(
+                        timeFormatter.format(Instant.ofEpochMilli(points.last().x.toLong()).atZone(ZoneId.systemDefault())),
+                        style = MaterialTheme.typography.labelSmall,
+                        color = colors.textLow
+                    )
+                }
+            }
+        }
+    }
+}
+
+@Composable
 private fun MetricsRow(state: DashboardUiState) {
     Row(horizontalArrangement = Arrangement.spacedBy(10.dp), modifier = Modifier.fillMaxWidth()) {
         MetricCard(
             modifier = Modifier.weight(1f),
             label = "GENERACIÓN PV",
             valueText = state.inverter?.pvPowerWatts?.toString() ?: "—",
-            unit = "W"
+            unit = "W",
+            errorReason = state.inverterError.takeIf { state.inverter == null }
         )
         MetricCard(
             modifier = Modifier.weight(1f),
             label = "BATERÍA",
             valueText = state.battery?.socPercent?.toString() ?: "—",
-            unit = "%"
+            unit = "%",
+            errorReason = state.batteryError.takeIf { state.battery == null }
         )
     }
 }
 
 @Composable
-private fun MetricCard(modifier: Modifier = Modifier, label: String, valueText: String, unit: String) {
+private fun MetricCard(modifier: Modifier = Modifier, label: String, valueText: String, unit: String, errorReason: String? = null) {
     val colors = LocalFelicityColors.current
     Card(
         modifier = modifier,
@@ -247,6 +317,14 @@ private fun MetricCard(modifier: Modifier = Modifier, label: String, valueText: 
                     fontSize = 26.sp
                 )
                 Text(" $unit", style = MaterialTheme.typography.bodyMedium, color = colors.textMid)
+            }
+            if (errorReason != null) {
+                Text(
+                    errorReason,
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.error,
+                    modifier = Modifier.padding(top = 4.dp)
+                )
             }
         }
     }

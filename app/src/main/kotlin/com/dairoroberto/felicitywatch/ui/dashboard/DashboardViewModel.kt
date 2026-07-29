@@ -36,7 +36,9 @@ data class DashboardUiState(
     val latestEvent: AlertEventEntity? = null,
     val voiceConfigured: Boolean = true,
     val pushConfigured: Boolean = false,
-    val whatsappConfigured: Boolean = false
+    val whatsappConfigured: Boolean = false,
+    val inverterError: String? = null,
+    val batteryError: String? = null
 ) {
     val connectionHealthy: Boolean get() = consecutiveFailures == 0 && lastError == null
 }
@@ -46,7 +48,9 @@ private data class ReadingsSnapshot(
     val confirmedGridState: GridState,
     val lastGridChangeAt: Instant?,
     val inverter: InverterReading?,
-    val battery: BatteryReading?
+    val battery: BatteryReading?,
+    val inverterError: String?,
+    val batteryError: String?
 )
 
 private data class StatusSnapshot(
@@ -69,14 +73,40 @@ class DashboardViewModel @Inject constructor(
     private val _isRefreshing = MutableStateFlow(false)
     val isRefreshing: StateFlow<Boolean> = _isRefreshing
 
-    private val readingsFlow = combine(
+    private data class GridSnapshot(val live: GridState, val confirmed: GridState, val lastChangeAt: Instant?)
+
+    private data class DeviceReadingsSnapshot(
+        val inverter: InverterReading?,
+        val battery: BatteryReading?,
+        val inverterError: String?,
+        val batteryError: String?
+    )
+
+    private val gridFlow = combine(
         stateHolder.liveGridState,
         stateHolder.confirmedGridState,
-        stateHolder.lastGridChangeAt,
+        stateHolder.lastGridChangeAt
+    ) { live, confirmed, lastChangeAt -> GridSnapshot(live, confirmed, lastChangeAt) }
+
+    private val deviceReadingsFlow = combine(
         stateHolder.inverterReading,
-        stateHolder.batteryReading
-    ) { live, confirmed, lastChangeAt, inverter, battery ->
-        ReadingsSnapshot(live, confirmed, lastChangeAt, inverter, battery)
+        stateHolder.batteryReading,
+        stateHolder.inverterError,
+        stateHolder.batteryError
+    ) { inverter, battery, inverterError, batteryError ->
+        DeviceReadingsSnapshot(inverter, battery, inverterError, batteryError)
+    }
+
+    private val readingsFlow = combine(gridFlow, deviceReadingsFlow) { grid, devices ->
+        ReadingsSnapshot(
+            liveGridState = grid.live,
+            confirmedGridState = grid.confirmed,
+            lastGridChangeAt = grid.lastChangeAt,
+            inverter = devices.inverter,
+            battery = devices.battery,
+            inverterError = devices.inverterError,
+            batteryError = devices.batteryError
+        )
     }
 
     private val statusFlow = combine(
@@ -103,7 +133,9 @@ class DashboardViewModel @Inject constructor(
             latestEvent = status.latestEvent,
             voiceConfigured = true,
             pushConfigured = NotificationChannels.areNotificationsEnabled(context),
-            whatsappConfigured = credentialsStore.hasWhatsappConfig()
+            whatsappConfigured = credentialsStore.hasWhatsappConfig(),
+            inverterError = readings.inverterError,
+            batteryError = readings.batteryError
         )
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), DashboardUiState())
 
