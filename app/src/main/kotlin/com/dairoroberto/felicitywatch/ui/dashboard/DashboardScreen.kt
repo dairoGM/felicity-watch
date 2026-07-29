@@ -218,7 +218,11 @@ private fun MetricsRow(state: DashboardUiState) {
             label = "GENERACIÓN PV",
             valueText = state.inverter?.pvPowerWatts?.toString() ?: "—",
             unit = "W",
-            errorReason = state.inverterError.takeIf { state.inverter == null },
+            errorReason = missingValueReason(
+                readingExists = state.inverter != null,
+                fieldPresent = state.inverter?.pvPowerWatts != null,
+                readingError = state.inverterError
+            ),
             deviceReportedAt = state.inverter?.deviceReportedAt
         )
         MetricCard(
@@ -226,10 +230,26 @@ private fun MetricsRow(state: DashboardUiState) {
             label = "BATERÍA",
             valueText = state.battery?.socPercent?.toString() ?: "—",
             unit = "%",
-            errorReason = state.batteryError.takeIf { state.battery == null },
+            errorReason = missingValueReason(
+                readingExists = state.battery != null,
+                fieldPresent = state.battery?.socPercent != null,
+                readingError = state.batteryError
+            ),
             deviceReportedAt = state.battery?.deviceReportedAt
         )
     }
+}
+
+/**
+ * Distingue por qué una métrica muestra "—": si nunca se pudo leer el
+ * dispositivo (error real), o si la lectura tuvo éxito pero Felicity no
+ * trajo ese campo puntual en este ciclo (típico cuando el equipo está
+ * desconectado por un corte de luz — no es un bug de la app).
+ */
+private fun missingValueReason(readingExists: Boolean, fieldPresent: Boolean, readingError: String?): String? {
+    if (fieldPresent) return null
+    if (!readingExists) return readingError ?: "No se pudo leer el equipo"
+    return "El equipo no reportó este dato en el último ciclo"
 }
 
 /** "hace X min/h" para la última vez que el EQUIPO reportó datos — distinto

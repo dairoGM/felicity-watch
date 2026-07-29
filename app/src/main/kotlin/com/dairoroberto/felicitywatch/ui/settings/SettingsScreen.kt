@@ -10,6 +10,7 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
@@ -26,6 +27,7 @@ import androidx.compose.material.icons.filled.RecordVoiceOver
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
@@ -50,6 +52,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
@@ -60,6 +63,10 @@ import com.dairoroberto.felicitywatch.ui.components.PasswordField
 import com.dairoroberto.felicitywatch.ui.components.PhoneField
 import com.dairoroberto.felicitywatch.ui.theme.LocalFelicityColors
 import kotlinx.coroutines.launch
+
+/** Alto uniforme para todos los botones de acción de esta pantalla. */
+private val ACTION_BUTTON_HEIGHT = 48.dp
+private val SECTION_CONTENT_SPACING = 12.dp
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -134,12 +141,13 @@ fun SettingsScreen(
                     PasswordField(
                         value = formState.fsolarPassword,
                         onValueChange = viewModel::onPasswordChange,
-                        modifier = Modifier.padding(top = 10.dp)
+                        modifier = Modifier.padding(top = SECTION_CONTENT_SPACING)
                     )
-                    Button(
+                    ActionButton(
+                        text = "Guardar credenciales",
                         onClick = { viewModel.saveFsolarCredentials() },
-                        modifier = Modifier.padding(top = 12.dp)
-                    ) { Text("Guardar credenciales") }
+                        modifier = Modifier.padding(top = SECTION_CONTENT_SPACING)
+                    )
                 }
             }
 
@@ -150,12 +158,13 @@ fun SettingsScreen(
                         value = formState.callMeBotApiKey,
                         onValueChange = viewModel::onApiKeyChange,
                         label = "API key de CallMeBot",
-                        modifier = Modifier.padding(top = 10.dp)
+                        modifier = Modifier.padding(top = SECTION_CONTENT_SPACING)
                     )
-                    Button(
+                    ActionButton(
+                        text = "Guardar WhatsApp",
                         onClick = { viewModel.saveWhatsappConfig() },
-                        modifier = Modifier.padding(top = 12.dp)
-                    ) { Text("Guardar WhatsApp") }
+                        modifier = Modifier.padding(top = SECTION_CONTENT_SPACING)
+                    )
                 }
             }
 
@@ -166,19 +175,14 @@ fun SettingsScreen(
                         style = MaterialTheme.typography.bodySmall,
                         color = LocalFelicityColors.current.textMid
                     )
-                    Button(
+                    ActionButton(
+                        text = if (isTestingConnection) "Probando…" else "Probar conexión / primera lectura",
+                        icon = if (isTestingConnection) null else Icons.Default.CloudSync,
+                        loading = isTestingConnection,
                         onClick = { viewModel.testConnection() },
                         enabled = !isTestingConnection,
-                        modifier = Modifier.padding(top = 10.dp)
-                    ) {
-                        if (isTestingConnection) {
-                            CircularProgressIndicator(modifier = Modifier.size(16.dp), strokeWidth = 2.dp)
-                            Text("  Probando…")
-                        } else {
-                            Icon(Icons.Default.CloudSync, contentDescription = null, modifier = Modifier.size(18.dp))
-                            Text("  Probar conexión / primera lectura")
-                        }
-                    }
+                        modifier = Modifier.padding(top = SECTION_CONTENT_SPACING)
+                    )
                 }
             }
 
@@ -215,13 +219,14 @@ fun SettingsScreen(
                         style = MaterialTheme.typography.bodyMedium,
                         color = if (batteryExcluded) LocalFelicityColors.current.green else LocalFelicityColors.current.textMid
                     )
-                    Button(
+                    ActionButton(
+                        text = "Solicitar exclusión",
                         onClick = {
                             requestIgnoreBatteryOptimizations(context)
                             batteryExcluded = isIgnoringBatteryOptimizations(context)
                         },
-                        modifier = Modifier.padding(top = 10.dp)
-                    ) { Text("Solicitar exclusión") }
+                        modifier = Modifier.padding(top = SECTION_CONTENT_SPACING)
+                    )
                 }
             }
 
@@ -235,7 +240,7 @@ fun SettingsScreen(
                     Row(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .padding(top = 10.dp),
+                            .padding(top = SECTION_CONTENT_SPACING),
                         horizontalArrangement = Arrangement.spacedBy(8.dp)
                     ) {
                         listOf(15, 30, 60, 120, 300).forEach { seconds ->
@@ -260,10 +265,11 @@ fun SettingsScreen(
                         style = MaterialTheme.typography.bodyMedium,
                         color = if (serviceRunning) LocalFelicityColors.current.green else LocalFelicityColors.current.textMid
                     )
-                    Button(
+                    ActionButton(
+                        text = "Reiniciar servicio",
                         onClick = { viewModel.restartService() },
-                        modifier = Modifier.padding(top = 10.dp)
-                    ) { Text("Reiniciar servicio") }
+                        modifier = Modifier.padding(top = SECTION_CONTENT_SPACING)
+                    )
                 }
             }
 
@@ -273,9 +279,13 @@ fun SettingsScreen(
                         modifier = Modifier.fillMaxWidth(),
                         horizontalArrangement = Arrangement.SpaceBetween
                     ) {
-                        Row {
+                        Row(verticalAlignment = androidx.compose.ui.Alignment.CenterVertically) {
                             Icon(Icons.Default.DarkMode, contentDescription = null)
-                            Text("  Modo oscuro", style = MaterialTheme.typography.bodyMedium, modifier = Modifier.padding(top = 2.dp))
+                            Text(
+                                "Modo oscuro",
+                                style = MaterialTheme.typography.bodyMedium,
+                                modifier = Modifier.padding(start = 8.dp)
+                            )
                         }
                         Switch(checked = darkModeEnabled, onCheckedChange = onToggleDarkMode)
                     }
@@ -284,42 +294,96 @@ fun SettingsScreen(
 
             item {
                 SectionCard(title = "Zona de riesgo") {
-                    OutlinedButton(
-                        onClick = { showLogoutConfirm = true },
-                        modifier = Modifier.fillMaxWidth()
-                    ) {
-                        Icon(Icons.Default.Logout, contentDescription = null)
-                        Text("  Cerrar sesión")
-                    }
-                    OutlinedButton(
+                    ActionButton(
+                        text = "Cerrar sesión",
+                        icon = Icons.Default.Logout,
+                        outlined = true,
+                        onClick = { showLogoutConfirm = true }
+                    )
+                    ActionButton(
+                        text = "Restablecer valores de fábrica",
+                        icon = Icons.Default.DeleteForever,
+                        outlined = true,
+                        contentColor = MaterialTheme.colorScheme.error,
                         onClick = { showFactoryResetConfirm = true },
-                        modifier = Modifier.fillMaxWidth().padding(top = 10.dp),
-                        colors = androidx.compose.material3.ButtonDefaults.outlinedButtonColors(
-                            contentColor = MaterialTheme.colorScheme.error
-                        )
-                    ) {
-                        Icon(Icons.Default.DeleteForever, contentDescription = null)
-                        Text("  Restablecer valores de fábrica")
-                    }
+                        modifier = Modifier.padding(top = SECTION_CONTENT_SPACING)
+                    )
                 }
             }
         }
     }
 }
 
+/**
+ * Botón de acción estándar de Ajustes: mismo alto y ancho completo en
+ * todas las tarjetas, para que la pantalla se vea consistente en vez de
+ * cada botón con su propio tamaño.
+ */
 @Composable
-private fun ChannelTestRow(icon: androidx.compose.ui.graphics.vector.ImageVector, label: String, onTest: () -> Unit) {
+private fun ActionButton(
+    text: String,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+    icon: ImageVector? = null,
+    enabled: Boolean = true,
+    outlined: Boolean = false,
+    loading: Boolean = false,
+    contentColor: androidx.compose.ui.graphics.Color? = null
+) {
+    val content: @Composable androidx.compose.foundation.layout.RowScope.() -> Unit = {
+        if (loading) {
+            CircularProgressIndicator(modifier = Modifier.size(18.dp), strokeWidth = 2.dp)
+            Text(text, modifier = Modifier.padding(start = 8.dp))
+        } else {
+            if (icon != null) {
+                Icon(icon, contentDescription = null, modifier = Modifier.size(18.dp))
+                Text(text, modifier = Modifier.padding(start = 8.dp))
+            } else {
+                Text(text)
+            }
+        }
+    }
+
+    if (outlined) {
+        OutlinedButton(
+            onClick = onClick,
+            enabled = enabled,
+            modifier = modifier
+                .fillMaxWidth()
+                .height(ACTION_BUTTON_HEIGHT),
+            colors = if (contentColor != null) {
+                ButtonDefaults.outlinedButtonColors(contentColor = contentColor)
+            } else {
+                ButtonDefaults.outlinedButtonColors()
+            },
+            content = content
+        )
+    } else {
+        Button(
+            onClick = onClick,
+            enabled = enabled,
+            modifier = modifier
+                .fillMaxWidth()
+                .height(ACTION_BUTTON_HEIGHT),
+            content = content
+        )
+    }
+}
+
+@Composable
+private fun ChannelTestRow(icon: ImageVector, label: String, onTest: () -> Unit) {
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            .padding(top = 10.dp),
-        horizontalArrangement = Arrangement.SpaceBetween
+            .padding(top = SECTION_CONTENT_SPACING),
+        horizontalArrangement = Arrangement.SpaceBetween,
+        verticalAlignment = androidx.compose.ui.Alignment.CenterVertically
     ) {
-        Row {
+        Row(verticalAlignment = androidx.compose.ui.Alignment.CenterVertically) {
             Icon(icon, contentDescription = null, tint = LocalFelicityColors.current.textMid)
-            Text("  $label", style = MaterialTheme.typography.bodyMedium, modifier = Modifier.padding(top = 2.dp))
+            Text("  $label", style = MaterialTheme.typography.bodyMedium)
         }
-        TextButton(onClick = onTest) {
+        TextButton(onClick = onTest, modifier = Modifier.height(ACTION_BUTTON_HEIGHT)) {
             Icon(Icons.Default.Refresh, contentDescription = null, modifier = Modifier.padding(end = 4.dp))
             Text("Probar")
         }
@@ -331,11 +395,12 @@ private fun SectionCard(title: String, content: @Composable () -> Unit) {
     Card(
         colors = CardDefaults.cardColors(containerColor = LocalFelicityColors.current.surface2),
         shape = RoundedCornerShape(14.dp),
-        elevation = CardDefaults.cardElevation(defaultElevation = 1.dp)
+        elevation = CardDefaults.cardElevation(defaultElevation = 1.dp),
+        modifier = Modifier.fillMaxWidth()
     ) {
         Column(Modifier.padding(16.dp)) {
             Text(title, style = MaterialTheme.typography.titleSmall)
-            Column(Modifier.padding(top = 12.dp)) { content() }
+            Column(Modifier.padding(top = SECTION_CONTENT_SPACING)) { content() }
         }
     }
 }
