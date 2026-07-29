@@ -13,6 +13,12 @@ interface PowerReadingDao {
     @Query("SELECT * FROM power_readings WHERE timestampEpochMillis >= :sinceEpochMillis ORDER BY timestampEpochMillis ASC")
     fun observeSince(sinceEpochMillis: Long): Flow<List<PowerReadingEntity>>
 
+    @Query(
+        "SELECT * FROM power_readings WHERE timestampEpochMillis >= :startEpochMillis " +
+            "AND timestampEpochMillis <= :endEpochMillis ORDER BY timestampEpochMillis ASC"
+    )
+    fun observeBetween(startEpochMillis: Long, endEpochMillis: Long): Flow<List<PowerReadingEntity>>
+
     @Query("DELETE FROM power_readings WHERE timestampEpochMillis < :beforeEpochMillis")
     suspend fun deleteOlderThan(beforeEpochMillis: Long)
 

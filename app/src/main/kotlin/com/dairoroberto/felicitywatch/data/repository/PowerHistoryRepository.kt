@@ -15,6 +15,10 @@ class PowerHistoryRepository @Inject constructor(
     fun observeLast24Hours(): Flow<List<PowerReadingEntity>> =
         dao.observeSince(Instant.now().minus(Duration.ofHours(24)).toEpochMilli())
 
+    /** Para el Reporte: rango de fechas elegido por el usuario. */
+    fun observeBetween(start: Instant, end: Instant): Flow<List<PowerReadingEntity>> =
+        dao.observeBetween(start.toEpochMilli(), end.toEpochMilli())
+
     suspend fun record(pvPowerWatts: Int?, gridPowerWatts: Int?, socPercent: Int?, now: Instant) {
         dao.insert(
             PowerReadingEntity(
@@ -24,9 +28,14 @@ class PowerHistoryRepository @Inject constructor(
                 socPercent = socPercent
             )
         )
-        // Poda liviana: no acumular más de 7 días de historial local.
-        dao.deleteOlderThan(now.minus(Duration.ofDays(7)).toEpochMilli())
+        // Poda liviana: retiene 30 días para que el Reporte con filtro de
+        // fecha tenga margen razonable sin crecer sin límite.
+        dao.deleteOlderThan(now.minus(Duration.ofDays(RETENTION_DAYS)).toEpochMilli())
     }
 
     suspend fun clearAll() = dao.deleteAll()
+
+    companion object {
+        private const val RETENTION_DAYS = 30L
+    }
 }

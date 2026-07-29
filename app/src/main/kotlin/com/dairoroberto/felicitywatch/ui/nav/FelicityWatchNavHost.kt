@@ -6,6 +6,7 @@ import androidx.compose.material.icons.filled.History
 import androidx.compose.material.icons.filled.Memory
 import androidx.compose.material.icons.filled.NotificationsActive
 import androidx.compose.material.icons.filled.Settings
+import androidx.compose.material.icons.filled.ShowChart
 import androidx.compose.material.icons.filled.SpaceDashboard
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
@@ -30,6 +31,7 @@ import com.dairoroberto.felicitywatch.ui.dashboard.DashboardScreen
 import com.dairoroberto.felicitywatch.ui.devices.DevicesScreen
 import com.dairoroberto.felicitywatch.ui.history.HistoryScreen
 import com.dairoroberto.felicitywatch.ui.onboarding.OnboardingScreen
+import com.dairoroberto.felicitywatch.ui.report.ReportScreen
 import com.dairoroberto.felicitywatch.ui.settings.SettingsScreen
 import com.dairoroberto.felicitywatch.ui.theme.ThemeViewModel
 
@@ -37,6 +39,7 @@ private sealed class MainDestination(val route: String, val label: String, val i
     data object Dashboard : MainDestination("dashboard", "Panel", Icons.Default.SpaceDashboard)
     data object Alerts : MainDestination("alerts", "Alertas", Icons.Default.NotificationsActive)
     data object Devices : MainDestination("devices", "Equipos", Icons.Default.Memory)
+    data object Report : MainDestination("report", "Reporte", Icons.Default.ShowChart)
     data object History : MainDestination("history", "Historial", Icons.Default.History)
     data object Settings : MainDestination("settings", "Ajustes", Icons.Default.Settings)
 }
@@ -45,6 +48,7 @@ private val bottomDestinations = listOf(
     MainDestination.Dashboard,
     MainDestination.Alerts,
     MainDestination.Devices,
+    MainDestination.Report,
     MainDestination.History,
     MainDestination.Settings
 )
@@ -99,6 +103,7 @@ fun FelicityWatchNavHost(
             composable(MainDestination.Dashboard.route) { DashboardScreen() }
             composable(MainDestination.Alerts.route) { AlertsScreen() }
             composable(MainDestination.Devices.route) { DevicesScreen() }
+            composable(MainDestination.Report.route) { ReportScreen() }
             composable(MainDestination.History.route) { HistoryScreen() }
             composable(MainDestination.Settings.route) {
                 SettingsScreen(

@@ -4,6 +4,10 @@ import com.dairoroberto.felicitywatch.domain.model.BatteryReading
 import com.dairoroberto.felicitywatch.domain.model.InverterReading
 import com.google.gson.JsonObject
 import java.time.Instant
+import java.time.LocalDateTime
+import java.time.ZoneId
+import java.time.format.DateTimeFormatter
+import java.time.format.DateTimeParseException
 
 /**
  * Puerto directo del helper `_first()` de coordinator.py (felicityAPI):
@@ -14,6 +18,7 @@ import java.time.Instant
 object FelicitySnapshotMapper {
 
     private val BLANK_TOKENS = setOf("unknown", "unavailable", "null")
+    private val DEVICE_TIME_FORMATTER = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss")
 
     private fun firstNonBlank(data: JsonObject, vararg keys: String): String? {
         for (key in keys) {
@@ -32,6 +37,15 @@ object FelicitySnapshotMapper {
     private fun firstDouble(data: JsonObject, vararg keys: String): Double? =
         firstNonBlank(data, *keys)?.toDoubleOrNull()
 
+    private fun deviceReportedAt(data: JsonObject): Instant? {
+        val raw = firstNonBlank(data, "dataTimeStr") ?: return null
+        return try {
+            LocalDateTime.parse(raw, DEVICE_TIME_FORMATTER).atZone(ZoneId.systemDefault()).toInstant()
+        } catch (e: DateTimeParseException) {
+            null
+        }
+    }
+
     fun toInverterReading(serialNumber: String, data: JsonObject, now: Instant): InverterReading {
         val gridPower = firstInt(
             data,
@@ -45,7 +59,8 @@ object FelicitySnapshotMapper {
             serialNumber = serialNumber,
             gridPowerWatts = gridPower,
             pvPowerWatts = pvPower,
-            loadPowerWatts = loadPower
+            loadPowerWatts = loadPower,
+            deviceReportedAt = deviceReportedAt(data)
         )
     }
 
@@ -61,7 +76,8 @@ object FelicitySnapshotMapper {
             socPercent = soc,
             voltage = voltage,
             current = current,
-            healthPercent = health
+            healthPercent = health,
+            deviceReportedAt = deviceReportedAt(data)
         )
     }
 }
