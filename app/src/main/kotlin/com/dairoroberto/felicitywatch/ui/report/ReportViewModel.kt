@@ -14,6 +14,7 @@ import kotlinx.coroutines.flow.stateIn
 import java.time.Instant
 import java.time.LocalDate
 import java.time.ZoneId
+import java.time.temporal.ChronoUnit
 import javax.inject.Inject
 
 data class DateRange(val start: LocalDate, val end: LocalDate)
@@ -57,6 +58,15 @@ class ReportViewModel @Inject constructor(
 
     fun setCustomRange(start: LocalDate, end: LocalDate) {
         _dateRange.value = if (start.isAfter(end)) DateRange(end, start) else DateRange(start, end)
+    }
+
+    /** Desplaza el periodo actual manteniendo su duración (ej. si son 7
+     * días, "anterior/siguiente" mueve el bloque completo de 7 en 7). */
+    fun shiftRange(forward: Boolean) {
+        val current = _dateRange.value
+        val lengthDays = ChronoUnit.DAYS.between(current.start, current.end) + 1
+        val delta = if (forward) lengthDays else -lengthDays
+        _dateRange.value = DateRange(current.start.plusDays(delta), current.end.plusDays(delta))
     }
 
     fun epochMillisToLocalDate(epochMillis: Long): LocalDate =

@@ -11,11 +11,17 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.ChevronLeft
+import androidx.compose.material.icons.filled.ChevronRight
+import androidx.compose.material.icons.filled.KeyboardArrowDown
 import androidx.compose.material3.DatePicker
 import androidx.compose.material3.DatePickerDialog
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.FilterChip
-import androidx.compose.material3.FilterChipDefaults
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Text
@@ -30,6 +36,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import com.dairoroberto.felicitywatch.ui.components.ChartPoint
@@ -54,6 +61,8 @@ fun ReportScreen(viewModel: ReportViewModel = hiltViewModel()) {
 
     var showStartPicker by remember { mutableStateOf(false) }
     var showEndPicker by remember { mutableStateOf(false) }
+    var showPeriodMenu by remember { mutableStateOf(false) }
+    var showCustomPickers by remember { mutableStateOf(false) }
 
     // Igual que en el Panel: "hace X" depende del reloj, no solo de los
     // datos — sin este tick, el texto de última lectura queda congelado.
@@ -110,52 +119,92 @@ fun ReportScreen(viewModel: ReportViewModel = hiltViewModel()) {
         verticalArrangement = Arrangement.spacedBy(14.dp)
     ) {
         item {
+            val isToday = dateRange.start == dateRange.end && dateRange.start == LocalDate.now()
+            val isYesterday = dateRange.start == dateRange.end && dateRange.start == LocalDate.now().minusDays(1)
+            val isLast7 = dateRange.start == LocalDate.now().minusDays(6) && dateRange.end == LocalDate.now()
+            val isLast30 = dateRange.start == LocalDate.now().minusDays(29) && dateRange.end == LocalDate.now()
+            val periodLabel = when {
+                isToday -> "Hoy"
+                isYesterday -> "Ayer"
+                isLast7 -> "7 días"
+                isLast30 -> "30 días"
+                else -> "Personalizado"
+            }
+            val rangeLabel = if (dateRange.start == dateRange.end) {
+                dateFormatter.format(dateRange.start)
+            } else {
+                "${dateFormatter.format(dateRange.start)} — ${dateFormatter.format(dateRange.end)}"
+            }
+
             Card(
                 colors = CardDefaults.cardColors(containerColor = colors.surface2),
                 shape = RoundedCornerShape(14.dp),
                 elevation = CardDefaults.cardElevation(defaultElevation = 1.dp)
             ) {
                 Column(Modifier.padding(16.dp)) {
-                    Text("PERIODO", style = MaterialTheme.typography.labelSmall, color = colors.textLow)
                     Row(
-                        modifier = Modifier.fillMaxWidth().padding(top = 8.dp),
-                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
                     ) {
-                        FilterChip(
-                            selected = dateRange.start == dateRange.end && dateRange.start == LocalDate.now(),
-                            onClick = { viewModel.setToday() },
-                            label = { Text("Hoy") },
-                            colors = FilterChipDefaults.filterChipColors(selectedContainerColor = colors.tealDim)
-                        )
-                        FilterChip(
-                            selected = dateRange.start == dateRange.end && dateRange.start == LocalDate.now().minusDays(1),
-                            onClick = { viewModel.setYesterday() },
-                            label = { Text("Ayer") },
-                            colors = FilterChipDefaults.filterChipColors(selectedContainerColor = colors.tealDim)
-                        )
-                        FilterChip(
-                            selected = dateRange.start == LocalDate.now().minusDays(6) && dateRange.end == LocalDate.now(),
-                            onClick = { viewModel.setLast7Days() },
-                            label = { Text("7 días") },
-                            colors = FilterChipDefaults.filterChipColors(selectedContainerColor = colors.tealDim)
-                        )
-                        FilterChip(
-                            selected = dateRange.start == LocalDate.now().minusDays(29) && dateRange.end == LocalDate.now(),
-                            onClick = { viewModel.setLast30Days() },
-                            label = { Text("30 días") },
-                            colors = FilterChipDefaults.filterChipColors(selectedContainerColor = colors.tealDim)
-                        )
-                    }
-                    Row(
-                        modifier = Modifier.fillMaxWidth().padding(top = 12.dp),
-                        horizontalArrangement = Arrangement.spacedBy(8.dp)
-                    ) {
-                        OutlinedButton(onClick = { showStartPicker = true }, modifier = Modifier.weight(1f)) {
-                            Text(dateFormatter.format(dateRange.start))
+                        Text("PERIODO", style = MaterialTheme.typography.labelSmall, color = colors.textLow)
+
+                        Box {
+                            OutlinedButton(onClick = { showPeriodMenu = true }) {
+                                Text(periodLabel)
+                                Icon(Icons.Default.KeyboardArrowDown, contentDescription = null, modifier = Modifier.padding(start = 4.dp))
+                            }
+                            DropdownMenu(expanded = showPeriodMenu, onDismissRequest = { showPeriodMenu = false }) {
+                                DropdownMenuItem(text = { Text("Hoy") }, onClick = {
+                                    viewModel.setToday(); showPeriodMenu = false
+                                })
+                                DropdownMenuItem(text = { Text("Ayer") }, onClick = {
+                                    viewModel.setYesterday(); showPeriodMenu = false
+                                })
+                                DropdownMenuItem(text = { Text("7 días") }, onClick = {
+                                    viewModel.setLast7Days(); showPeriodMenu = false
+                                })
+                                DropdownMenuItem(text = { Text("30 días") }, onClick = {
+                                    viewModel.setLast30Days(); showPeriodMenu = false
+                                })
+                                DropdownMenuItem(text = { Text("Personalizado") }, onClick = {
+                                    showPeriodMenu = false
+                                    showCustomPickers = true
+                                })
+                            }
                         }
-                        Text("—", modifier = Modifier.padding(top = 12.dp))
-                        OutlinedButton(onClick = { showEndPicker = true }, modifier = Modifier.weight(1f)) {
-                            Text(dateFormatter.format(dateRange.end))
+                    }
+
+                    Row(
+                        modifier = Modifier.fillMaxWidth().padding(top = 10.dp),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        IconButton(onClick = { viewModel.shiftRange(forward = false) }) {
+                            Icon(Icons.Default.ChevronLeft, contentDescription = "Periodo anterior")
+                        }
+                        Text(
+                            rangeLabel,
+                            style = MaterialTheme.typography.bodyMedium,
+                            fontWeight = FontWeight.Medium
+                        )
+                        IconButton(onClick = { viewModel.shiftRange(forward = true) }) {
+                            Icon(Icons.Default.ChevronRight, contentDescription = "Periodo siguiente")
+                        }
+                    }
+
+                    if (showCustomPickers) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth().padding(top = 8.dp),
+                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            OutlinedButton(onClick = { showStartPicker = true }, modifier = Modifier.weight(1f)) {
+                                Text(dateFormatter.format(dateRange.start))
+                            }
+                            Text("—", modifier = Modifier.padding(top = 12.dp))
+                            OutlinedButton(onClick = { showEndPicker = true }, modifier = Modifier.weight(1f)) {
+                                Text(dateFormatter.format(dateRange.end))
+                            }
                         }
                     }
                 }
@@ -193,12 +242,25 @@ fun ReportScreen(viewModel: ReportViewModel = hiltViewModel()) {
                         )
                     } else {
                         val maxYValue = points.maxOf { it.y }.coerceAtLeast(1f)
+                        val tooltipTimeFormatter = DateTimeFormatter.ofLocalizedTime(FormatStyle.SHORT).withLocale(Locale("es", "ES"))
                         Box(modifier = Modifier.padding(top = 10.dp)) {
                             LineAreaChart(
                                 points = points,
                                 lineColor = Teal,
                                 gridColor = colors.hairline,
-                                maxYOverride = maxYValue
+                                maxYOverride = maxYValue,
+                                tooltipLabel = { point ->
+                                    val watts = point.y.toInt()
+                                    val valueText = if (watts >= 1000) {
+                                        String.format(Locale("es", "ES"), "PV: %.2f kW", watts / 1000.0)
+                                    } else {
+                                        "PV: $watts W"
+                                    }
+                                    val time = tooltipTimeFormatter.format(
+                                        Instant.ofEpochMilli(minEpochMillis + point.x.toLong()).atZone(ZoneId.systemDefault())
+                                    )
+                                    valueText to time
+                                }
                             )
                             Text(
                                 "${maxYValue.toInt()} W",
