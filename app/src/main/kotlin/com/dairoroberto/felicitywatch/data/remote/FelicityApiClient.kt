@@ -157,7 +157,7 @@ class FelicityApiClient @Inject constructor(
 
     suspend fun listDevices(username: String, password: String): DeviceListResponse =
         requestWithRetry(username, password, { it.code }) { token ->
-            service.listDevices(token, DeviceListRequest())
+            service.listDevices(token, DeviceListRequest(), "de_DE", "WEB")
         }
 
     /** [dateStr] se recibe ya calculado (en vez de generarlo aquí) para que el
@@ -169,7 +169,9 @@ class FelicityApiClient @Inject constructor(
         requestWithRetry(username, password, { it.code }) { token ->
             service.getDeviceSnapshot(
                 token = token,
-                body = SnapshotRequest(deviceSn = deviceSn, dateStr = dateStr)
+                body = SnapshotRequest(deviceSn = deviceSn, dateStr = dateStr),
+                lang = "de_DE",
+                source = "WEB"
             )
         }
 

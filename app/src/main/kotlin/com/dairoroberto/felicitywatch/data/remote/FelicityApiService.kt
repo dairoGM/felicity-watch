@@ -44,16 +44,16 @@ interface FelicityApiService {
     suspend fun listDevices(
         @Header("Authorization") token: String,
         @Body body: DeviceListRequest,
-        @Header("lang") lang: String = "de_DE",
-        @Header("source") source: String = "WEB"
+        @Header("lang") lang: String,
+        @Header("source") source: String
     ): Response<DeviceListResponse>
 
     @POST("device/get_device_snapshot")
     suspend fun getDeviceSnapshot(
         @Header("Authorization") token: String,
         @Body body: SnapshotRequest,
-        @Header("lang") lang: String = "de_DE",
-        @Header("source") source: String = "WEB"
+        @Header("lang") lang: String,
+        @Header("source") source: String
     ): Response<SnapshotResponse>
 }
 
