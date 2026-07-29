@@ -2,6 +2,7 @@ package com.dairoroberto.felicitywatch.data.remote
 
 import okhttp3.Interceptor
 import okhttp3.Response
+import okio.Buffer
 import javax.inject.Singleton
 
 /**
@@ -22,12 +23,20 @@ class RawResponseRecorder {
     var lastLoginBody: String? = null
         private set
 
+    @Volatile
+    var lastSnapshotRequestBody: String? = null
+        private set
+
     fun recordSnapshot(body: String) {
         lastSnapshotBody = body
     }
 
     fun recordLogin(body: String) {
         lastLoginBody = body
+    }
+
+    fun recordSnapshotRequest(body: String) {
+        lastSnapshotRequestBody = body
     }
 }
 
@@ -40,6 +49,17 @@ class RawResponseInterceptor(private val recorder: RawResponseRecorder) : Interc
         val isSnapshot = path.endsWith("get_device_snapshot")
         val isLogin = path.endsWith("sec/login") || path.endsWith("userlogin")
         if (!isSnapshot && !isLogin) return response
+
+        if (isSnapshot) {
+            val requestBody = request.body
+            if (requestBody != null) {
+                val buffer = Buffer()
+                requestBody.writeTo(buffer)
+                recorder.recordSnapshotRequest(buffer.readString(Charsets.UTF_8))
+            } else {
+                recorder.recordSnapshotRequest("(sin body)")
+            }
+        }
 
         val body = response.body ?: return response
         val source = body.source()

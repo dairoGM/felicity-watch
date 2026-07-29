@@ -95,6 +95,7 @@ class FelicityRepository @Inject constructor(
                 // solo lo que Gson interpretó: si hay discrepancia entre
                 // ambos, confirma que el problema es de parseo y no de red.
                 inverterRawJson = "Request: deviceSn=\"$sn\" dateStr=\"$dateStr\"\n" +
+                    "Actual request body sent: ${rawResponseRecorder.lastSnapshotRequestBody}\n" +
                     "Raw wire body: ${rawResponseRecorder.lastSnapshotBody}\n" +
                     "Parsed data: ${snapshot.dataObject}"
                 inverterReading = snapshot.dataObject?.let { FelicitySnapshotMapper.toInverterReading(sn, it, now) }
@@ -112,6 +113,7 @@ class FelicityRepository @Inject constructor(
                 val dateStr = apiClient.currentDateStr()
                 val snapshot = apiClient.getDeviceSnapshot(username, password, sn, dateStr)
                 batteryRawJson = "Request: deviceSn=\"$sn\" dateStr=\"$dateStr\"\n" +
+                    "Actual request body sent: ${rawResponseRecorder.lastSnapshotRequestBody}\n" +
                     "Raw wire body: ${rawResponseRecorder.lastSnapshotBody}\n" +
                     "Parsed data: ${snapshot.dataObject}"
                 batteryReading = snapshot.dataObject?.let { FelicitySnapshotMapper.toBatteryReading(sn, it, now) }
