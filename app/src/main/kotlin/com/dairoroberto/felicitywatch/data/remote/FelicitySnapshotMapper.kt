@@ -32,10 +32,16 @@ object FelicitySnapshotMapper {
     }
 
     private fun firstInt(data: JsonObject, vararg keys: String): Int? =
-        firstNonBlank(data, *keys)?.toDoubleOrNull()?.toInt()
+        firstNonBlank(data, *keys)?.toDoubleOrNull()?.let { Math.round(it).toInt() }
 
     private fun firstDouble(data: JsonObject, vararg keys: String): Double? =
         firstNonBlank(data, *keys)?.toDoubleOrNull()
+
+    /** [pvTotalPower]/[pvNPower] llegan en kW (ej. "1.5" = 1500W), a diferencia
+     * de los campos de red/carga que ya vienen en W — se confirmó en vivo
+     * contra el servidor real (1.5 reportado por el equipo = 1.50kW reales). */
+    private fun firstKilowattsAsWatts(data: JsonObject, vararg keys: String): Int? =
+        firstNonBlank(data, *keys)?.toDoubleOrNull()?.let { Math.round(it * 1000).toInt() }
 
     private fun deviceReportedAt(data: JsonObject): Instant? {
         val raw = firstNonBlank(data, "dataTimeStr") ?: return null
@@ -51,7 +57,7 @@ object FelicitySnapshotMapper {
             data,
             "acTtlInPower", "acTtlInpower", "totalAcTtlInPower", "ctPower", "ctAcTtlInPower"
         )
-        val pvPower = firstInt(data, "pvTotalPower", "pvPower", "pv1Power")
+        val pvPower = firstKilowattsAsWatts(data, "pvTotalPower", "pvPower", "pv1Power")
         val loadPower = firstInt(data, "totalConsumPower", "ctPower", "meterPower")
 
         return InverterReading(

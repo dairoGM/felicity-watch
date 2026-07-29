@@ -213,14 +213,15 @@ private fun lastChangeLabel(lastChangeAt: Instant?): String {
 @Composable
 private fun MetricsRow(state: DashboardUiState) {
     Row(horizontalArrangement = Arrangement.spacedBy(10.dp), modifier = Modifier.fillMaxWidth()) {
+        val pvPower = state.inverter?.pvPowerWatts
         MetricCard(
             modifier = Modifier.weight(1f),
             label = "GENERACIÓN PV",
-            valueText = state.inverter?.pvPowerWatts?.toString() ?: "—",
-            unit = "W",
+            valueText = pvPower?.let { formatPowerValue(it) } ?: "—",
+            unit = pvPower?.let { formatPowerUnit(it) } ?: "W",
             errorReason = missingValueReason(
                 readingExists = state.inverter != null,
-                fieldPresent = state.inverter?.pvPowerWatts != null,
+                fieldPresent = pvPower != null,
                 readingError = state.inverterError
             ),
             deviceReportedAt = state.inverter?.deviceReportedAt
@@ -239,6 +240,11 @@ private fun MetricsRow(state: DashboardUiState) {
         )
     }
 }
+
+private fun formatPowerValue(watts: Int): String =
+    if (watts >= 1000) String.format(Locale("es", "ES"), "%.2f", watts / 1000.0) else watts.toString()
+
+private fun formatPowerUnit(watts: Int): String = if (watts >= 1000) "kW" else "W"
 
 /**
  * Distingue por qué una métrica muestra "—": si nunca se pudo leer el
