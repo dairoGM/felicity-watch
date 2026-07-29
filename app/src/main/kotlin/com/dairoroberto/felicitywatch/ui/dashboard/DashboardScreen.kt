@@ -240,7 +240,7 @@ private fun MetricsRow(state: DashboardUiState, now: Instant) {
                 fieldPresent = pvPower != null,
                 readingError = state.inverterError
             ),
-            deviceReportedAt = state.inverter?.deviceReportedAt,
+            lastReadingAt = state.lastSuccessfulReadingAt,
             now = now
         )
         MetricCard(
@@ -253,7 +253,7 @@ private fun MetricsRow(state: DashboardUiState, now: Instant) {
                 fieldPresent = state.battery?.socPercent != null,
                 readingError = state.batteryError
             ),
-            deviceReportedAt = state.battery?.deviceReportedAt,
+            lastReadingAt = state.lastSuccessfulReadingAt,
             now = now
         )
     }
@@ -280,9 +280,9 @@ private fun missingValueReason(readingExists: Boolean, fieldPresent: Boolean, re
  * Xs), pero con la hora que el EQUIPO reportó — distinta de cuándo la app
  * consultó; si es vieja, el equipo está desconectado (ej. corte de luz le
  * quita WiFi al collector), no un bug de la app. */
-private fun deviceReportedLabel(deviceReportedAt: Instant?, now: Instant): String? {
-    if (deviceReportedAt == null) return null
-    return "Última lectura: ${readingTimestampLabel(deviceReportedAt, now)}"
+private fun lastReadingLabel(lastReadingAt: Instant?, now: Instant): String? {
+    if (lastReadingAt == null) return null
+    return "Última lectura: ${readingTimestampLabel(lastReadingAt, now)}"
 }
 
 @Composable
@@ -292,7 +292,7 @@ private fun MetricCard(
     valueText: String,
     unit: String,
     errorReason: String? = null,
-    deviceReportedAt: Instant? = null,
+    lastReadingAt: Instant? = null,
     now: Instant = Instant.now()
 ) {
     val colors = LocalFelicityColors.current
@@ -321,7 +321,7 @@ private fun MetricCard(
                     modifier = Modifier.padding(top = 4.dp)
                 )
             }
-            deviceReportedLabel(deviceReportedAt, now)?.let { label ->
+            lastReadingLabel(lastReadingAt, now)?.let { label ->
                 Text(
                     label,
                     style = MaterialTheme.typography.labelSmall,

@@ -223,12 +223,21 @@ fun ReportScreen(viewModel: ReportViewModel = hiltViewModel()) {
                         ) {
                             for (i in 0 until axisLabelCount) {
                                 val fraction = i.toFloat() / (axisLabelCount - 1)
-                                val epochMillis = minEpochMillis + (minTime + (maxTime - minTime) * fraction).toLong()
-                                Text(
-                                    timeFormatter.format(Instant.ofEpochMilli(epochMillis).atZone(ZoneId.systemDefault())),
-                                    style = MaterialTheme.typography.labelSmall,
-                                    color = colors.textLow
-                                )
+                                val targetX = minTime + (maxTime - minTime) * fraction
+                                val nearestPoint = points.minBy { kotlin.math.abs(it.x - targetX) }
+                                val epochMillis = minEpochMillis + nearestPoint.x.toLong()
+                                Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                                    Text(
+                                        timeFormatter.format(Instant.ofEpochMilli(epochMillis).atZone(ZoneId.systemDefault())),
+                                        style = MaterialTheme.typography.labelSmall,
+                                        color = colors.textLow
+                                    )
+                                    Text(
+                                        "${nearestPoint.y.toInt()} W",
+                                        style = MaterialTheme.typography.labelSmall,
+                                        color = colors.textMid
+                                    )
+                                }
                             }
                         }
                         Row(
