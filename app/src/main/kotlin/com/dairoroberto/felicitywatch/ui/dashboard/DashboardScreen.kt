@@ -18,6 +18,9 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.Error
+import androidx.compose.material.icons.filled.Phone
+import androidx.compose.material.icons.filled.Notifications
+import androidx.compose.material.icons.filled.Chat
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -57,13 +60,13 @@ fun DashboardScreen(viewModel: DashboardViewModel = hiltViewModel()) {
     val state by viewModel.uiState.collectAsState()
     val isRefreshing by viewModel.isRefreshing.collectAsState()
 
-    // Los textos "hace X min" dependen del reloj, no solo de los datos: sin
-    // este tick periódico, quedan congelados hasta la próxima lectura real
-    // (o hasta recargar la vista), aunque el tiempo transcurrido sí cambie.
+    // Tick cada segundo: alimenta tanto el reloj en vivo del Panel como los
+    // textos "hace X min", que de lo contrario quedarían congelados hasta
+    // la próxima lectura real aunque el tiempo transcurrido sí cambie.
     var now by remember { mutableStateOf(Instant.now()) }
     LaunchedEffect(Unit) {
         while (true) {
-            delay(15_000L)
+            delay(1_000L)
             now = Instant.now()
         }
     }
@@ -78,9 +81,14 @@ fun DashboardScreen(viewModel: DashboardViewModel = hiltViewModel()) {
             contentPadding = PaddingValues(16.dp),
             verticalArrangement = Arrangement.spacedBy(14.dp)
         ) {
+            item { ClockCard(now) }
             item { ConnectionStatusCard(state, now) }
             item { GridHeroCard(state, now) }
             item { MetricsRow(state, now) }
+            // Solo mostrar autonomía cuando no hay corriente de red
+            if (state.liveGridState == GridState.OFFLINE) {
+                item { BatteryRuntimeCard(state) }
+            }
             item {
                 Text(
                     "CANALES DE AVISO",
@@ -90,6 +98,39 @@ fun DashboardScreen(viewModel: DashboardViewModel = hiltViewModel()) {
                 )
             }
             item { ChannelsList(state) }
+        }
+    }
+}
+
+@Composable
+private fun ClockCard(now: Instant) {
+    val colors = LocalFelicityColors.current
+    val timeFormatter = remember { DateTimeFormatter.ofPattern("HH:mm:ss") }
+    val dateFormatter = remember { DateTimeFormatter.ofPattern("EEEE d 'de' MMMM").withLocale(Locale("es", "ES")) }
+
+    Card(
+        colors = CardDefaults.cardColors(containerColor = colors.surface2),
+        shape = RoundedCornerShape(14.dp),
+        elevation = CardDefaults.cardElevation(defaultElevation = 1.dp),
+        modifier = Modifier.fillMaxWidth()
+    ) {
+        Column(
+            Modifier.padding(horizontal = 16.dp, vertical = 14.dp),
+            horizontalAlignment = Alignment.CenterHorizontally
+        ) {
+            Text(
+                timeFormatter.format(now.atZone(ZoneId.systemDefault())),
+                fontFamily = JetBrainsMonoFamily,
+                fontWeight = FontWeight.Medium,
+                fontSize = 32.sp
+            )
+            Text(
+                dateFormatter.format(now.atZone(ZoneId.systemDefault()))
+                    .replaceFirstChar { it.uppercase() },
+                style = MaterialTheme.typography.labelSmall,
+                color = colors.textMid,
+                modifier = Modifier.padding(top = 2.dp)
+            )
         }
     }
 }
@@ -256,6 +297,119 @@ private fun MetricsRow(state: DashboardUiState, now: Instant) {
             lastReadingAt = state.lastSuccessfulReadingAt,
             now = now
         )
+        val loadPower = state.inverter?.loadPowerWatts
+        MetricCard(
+            modifier = Modifier.weight(1f),
+            label = "CONSUMO",
+            valueText = loadPower?.let { formatPowerValue(it) } ?: "—",
+            unit = loadPower?.let { formatPowerUnit(it) } ?: "W",
+            errorReason = missingValueReason(
+                readingExists = state.inverter != null,
+                fieldPresent = loadPower != null,
+                readingError = state.inverterError
+            ),
+            lastReadingAt = state.lastSuccessfulReadingAt,
+            now = now
+        )
+    }
+}
+
+/**
+ * Tarjeta de autonomía de batería — solo visible cuando no hay corriente eléctrica.
+ * Capacidad (Ah) y voltaje vienen del propio equipo (totalEmsCapacity/emsVoltage
+ * del API de Felicity), ya no se configuran a mano en Ajustes.
+ * Fórmula: (capacidadAh × voltaje × SOC% / 100) / consumoW = horas
+ * Ejemplo: (350 Ah × 48 V × 75 / 100) / 1250 W ≈ 10.1 h
+ */
+@Composable
+private fun BatteryRuntimeCard(state: DashboardUiState) {
+    val colors = LocalFelicityColors.current
+    val soc = state.battery?.socPercent
+    val loadWatts = state.inverter?.loadPowerWatts
+    val capacityAh = state.battery?.capacityAh
+    val voltage = state.battery?.voltage
+
+    // Energía disponible (Wh) = capacidad (Ah) × voltaje (V) × SOC% / 100.
+    // Sin voltaje no hay forma de convertir Ah a Wh, así que sin ese dato no
+    // se muestra un número (mejor "—" que una hora inventada).
+    val runtimeHours: Double? = if (soc != null && loadWatts != null && loadWatts > 0 &&
+        capacityAh != null && capacityAh > 0 && voltage != null && voltage > 0
+    ) {
+        val availableWh = capacityAh * voltage * (soc / 100.0)
+        availableWh / loadWatts
+    } else null
+
+    Card(
+        colors = CardDefaults.cardColors(containerColor = colors.surface2),
+        shape = RoundedCornerShape(16.dp),
+        elevation = CardDefaults.cardElevation(defaultElevation = 1.dp),
+        modifier = Modifier.fillMaxWidth()
+    ) {
+        Column(Modifier.padding(16.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Box(
+                    Modifier
+                        .size(10.dp)
+                        .clip(CircleShape)
+                        .background(colors.green.copy(alpha = 0.7f))
+                )
+                Text(
+                    "  AUTONOMÍA DE BATERÍA",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = colors.textMid
+                )
+            }
+            if (runtimeHours != null) {
+                val hours = runtimeHours.toLong()
+                val minutes = ((runtimeHours - hours) * 60).toLong()
+                val runtimeText = when {
+                    hours > 0 -> "${hours}h ${minutes}min"
+                    else -> "${minutes}min"
+                }
+                val runtimeColor = when {
+                    runtimeHours > 5 -> colors.green
+                    runtimeHours > 2 -> MaterialTheme.colorScheme.secondary
+                    else -> MaterialTheme.colorScheme.error
+                }
+                Text(
+                    runtimeText,
+                    fontFamily = SpaceGroteskFamily,
+                    fontWeight = FontWeight.SemiBold,
+                    fontSize = 28.sp,
+                    color = runtimeColor,
+                    modifier = Modifier.padding(top = 8.dp)
+                )
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(top = 8.dp),
+                    horizontalArrangement = Arrangement.SpaceBetween
+                ) {
+                    Text(
+                        "Capacidad: ${capacityAh?.toInt()} Ah",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = colors.textLow
+                    )
+                    Text(
+                        "SOC: ${soc}%",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = colors.textLow
+                    )
+                    Text(
+                        "Consumo: ${loadWatts} W",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = colors.textLow
+                    )
+                }
+            } else {
+                Text(
+                    "Sin datos suficientes para calcular la autonomía",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = colors.textMid,
+                    modifier = Modifier.padding(top = 10.dp)
+                )
+            }
+        }
     }
 }
 
@@ -344,47 +498,79 @@ private fun ChannelsList(state: DashboardUiState) {
         return timeFormatter.format(event.triggeredAt.atZone(ZoneId.systemDefault()))
     }
 
-    data class Row4(val label: String, val configured: Boolean, val lastFired: String)
-
-    val rows = listOf(
-        Row4("Voz del teléfono", state.voiceConfigured, timeFor(event?.voiceSent == true)),
-        Row4("Notificación push", state.pushConfigured, timeFor(event?.pushSent == true)),
-        Row4("WhatsApp", state.whatsappConfigured, timeFor(event?.whatsappSent == true))
-    )
-
-    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-        rows.forEach { row ->
-            Card(
-                colors = CardDefaults.cardColors(containerColor = colors.surface2),
-                shape = RoundedCornerShape(12.dp),
-                elevation = CardDefaults.cardElevation(defaultElevation = 1.dp)
-            ) {
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(horizontal = 14.dp, vertical = 12.dp),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Box(
-                            Modifier
-                                .size(7.dp)
-                                .clip(CircleShape)
-                                .background(if (row.configured) colors.green else colors.textLow)
-                        )
-                        Text("  ${row.label}", style = MaterialTheme.typography.bodyMedium)
-                    }
-                    Column(horizontalAlignment = Alignment.End) {
-                        Text(
-                            if (row.configured) "Configurado" else "Sin configurar",
-                            style = MaterialTheme.typography.labelSmall,
-                            color = if (row.configured) colors.green else colors.textLow
-                        )
-                        Text(row.lastFired, style = MaterialTheme.typography.labelSmall, color = colors.textLow)
-                    }
-                }
-            }
+    Card(
+        colors = CardDefaults.cardColors(containerColor = colors.surface2),
+        shape = RoundedCornerShape(12.dp),
+        elevation = CardDefaults.cardElevation(defaultElevation = 1.dp),
+        modifier = Modifier.fillMaxWidth()
+    ) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(16.dp),
+            horizontalArrangement = Arrangement.SpaceEvenly
+        ) {
+            ChannelStatusIcon(
+                icon = androidx.compose.material.icons.Icons.Default.Phone,
+                label = "Voz",
+                configured = state.voiceConfigured,
+                lastFired = timeFor(event?.voiceSent == true)
+            )
+            ChannelStatusIcon(
+                icon = androidx.compose.material.icons.Icons.Default.Notifications,
+                label = "Push",
+                configured = state.pushConfigured,
+                lastFired = timeFor(event?.pushSent == true)
+            )
+            ChannelStatusIcon(
+                icon = androidx.compose.material.icons.Icons.Default.Chat,
+                label = "WhatsApp",
+                configured = state.whatsappConfigured,
+                lastFired = timeFor(event?.whatsappSent == true)
+            )
         }
     }
 }
+
+@Composable
+private fun ChannelStatusIcon(
+    icon: androidx.compose.ui.graphics.vector.ImageVector,
+    label: String,
+    configured: Boolean,
+    lastFired: String
+) {
+    val colors = LocalFelicityColors.current
+    val accent = if (configured) colors.green else colors.textLow
+
+    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+        Box(contentAlignment = Alignment.TopEnd) {
+            Icon(
+                icon,
+                contentDescription = label,
+                tint = accent,
+                modifier = Modifier
+                    .size(32.dp)
+                    .padding(4.dp)
+            )
+            Box(
+                Modifier
+                    .size(8.dp)
+                    .clip(CircleShape)
+                    .background(accent)
+            )
+        }
+        Text(
+            label,
+            style = MaterialTheme.typography.labelMedium,
+            fontWeight = FontWeight.Medium,
+            modifier = Modifier.padding(top = 4.dp)
+        )
+        Text(
+            lastFired,
+            style = MaterialTheme.typography.labelSmall,
+            color = colors.textLow,
+            modifier = Modifier.padding(top = 2.dp)
+        )
+    }
+}
+

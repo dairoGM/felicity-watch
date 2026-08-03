@@ -1,6 +1,12 @@
 package com.dairoroberto.felicitywatch.ui.devices
 
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.expandVertically
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.shrinkVertically
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -19,6 +25,8 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.BatteryChargingFull
 import androidx.compose.material.icons.filled.DeviceUnknown
 import androidx.compose.material.icons.filled.ElectricBolt
+import androidx.compose.material.icons.filled.ExpandLess
+import androidx.compose.material.icons.filled.ExpandMore
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -30,6 +38,9 @@ import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -41,7 +52,6 @@ import com.dairoroberto.felicitywatch.domain.model.DeviceInfo
 import com.dairoroberto.felicitywatch.domain.model.DeviceRole
 import com.dairoroberto.felicitywatch.domain.model.InverterReading
 import com.dairoroberto.felicitywatch.ui.theme.LocalFelicityColors
-import com.dairoroberto.felicitywatch.ui.theme.Teal
 import java.util.Locale
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -99,11 +109,14 @@ private fun DeviceCard(device: DeviceInfo, inverterReading: InverterReading?, ba
         DeviceRole.OTHER -> Icons.Default.DeviceUnknown to "Dispositivo"
     }
     val online = device.status != null
+    val expandable = device.role == DeviceRole.INVERTER || device.role == DeviceRole.BATTERY
+    var expanded by remember(device.serialNumber) { mutableStateOf(false) }
 
     Card(
         colors = CardDefaults.cardColors(containerColor = colors.surface2),
         shape = RoundedCornerShape(14.dp),
-        elevation = CardDefaults.cardElevation(defaultElevation = 1.dp)
+        elevation = CardDefaults.cardElevation(defaultElevation = 1.dp),
+        modifier = if (expandable) Modifier.clickable { expanded = !expanded } else Modifier
     ) {
         Column(Modifier.padding(16.dp)) {
             // Cabecera: punto de estado + tipo + N/S, como en la app oficial
@@ -128,6 +141,13 @@ private fun DeviceCard(device: DeviceInfo, inverterReading: InverterReading?, ba
                     color = colors.textMid,
                     modifier = Modifier.padding(start = 10.dp).weight(1f)
                 )
+                if (expandable) {
+                    Icon(
+                        if (expanded) Icons.Default.ExpandLess else Icons.Default.ExpandMore,
+                        contentDescription = if (expanded) "Contraer" else "Ver detalle",
+                        tint = colors.textLow
+                    )
+                }
             }
 
             HorizontalDivider(modifier = Modifier.padding(vertical = 12.dp), color = colors.hairline)
@@ -140,7 +160,7 @@ private fun DeviceCard(device: DeviceInfo, inverterReading: InverterReading?, ba
                         .background(colors.tealDim),
                     contentAlignment = Alignment.Center
                 ) {
-                    Icon(icon, contentDescription = roleLabel, tint = Teal)
+                    Icon(icon, contentDescription = roleLabel, tint = colors.accent)
                 }
 
                 Column(Modifier.padding(start = 16.dp).weight(1f)) {
@@ -161,7 +181,37 @@ private fun DeviceCard(device: DeviceInfo, inverterReading: InverterReading?, ba
                     }
                     DeviceDetailRow(label = "Modelo del dispositivo", value = device.model ?: "—")
                     if (device.plantName != null) {
-                        DeviceDetailRow(label = "Planta", value = device.plantName, valueColor = Teal)
+                        DeviceDetailRow(label = "Planta", value = device.plantName, valueColor = colors.accent)
+                    }
+                }
+            }
+
+            AnimatedVisibility(
+                visible = expanded,
+                enter = fadeIn() + expandVertically(),
+                exit = fadeOut() + shrinkVertically()
+            ) {
+                Column {
+                    HorizontalDivider(modifier = Modifier.padding(vertical = 14.dp), color = colors.hairline)
+                    when (device.role) {
+                        DeviceRole.INVERTER -> {
+                            val batteryWatts = batteryReading?.current?.let { current ->
+                                batteryReading.voltage?.let { voltage -> (current * voltage).toInt() }
+                            }
+                            FlowDiagram(
+                                pvWatts = inverterReading?.pvPowerWatts,
+                                gridWatts = inverterReading?.gridPowerWatts,
+                                loadWatts = inverterReading?.loadPowerWatts,
+                                batteryWatts = batteryWatts,
+                                socPercent = batteryReading?.socPercent
+                            )
+                            InverterEnergyGrid(
+                                inverter = inverterReading,
+                                modifier = Modifier.padding(top = 16.dp)
+                            )
+                        }
+                        DeviceRole.BATTERY -> BatteryDetailCard(battery = batteryReading)
+                        DeviceRole.OTHER -> Unit
                     }
                 }
             }

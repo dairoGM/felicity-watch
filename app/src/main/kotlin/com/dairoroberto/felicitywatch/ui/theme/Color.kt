@@ -18,15 +18,27 @@ val TextMid = Color(0xFF8FA0AC)
 val TextLow = Color(0xFF546472)
 val DangerBorder = Color(0xFF7A2F2F)
 val DangerBg = Color(0xFF211112)
+val ChartRed = Color(0xFFEF4444)
+val DarkError = Color(0xFFEF4444) // Rojo saturado — sí tiene contraste correcto sobre fondos oscuros
+val ChargeAccent = Color(0xFFB794F6) // Morado — serie "Carga" en gráficos multilínea, modo oscuro
 
-// Paleta clara (modo claro), misma identidad de marca sobre fondo claro.
-val LightBg = Color(0xFFF6F5F1)
+// Paleta clara (modo claro), diseño elegante, profesional y minimalista.
+// Mismo acento Teal de marca que el modo oscuro (oscurecido para contraste
+// AA sobre fondo blanco) — antes varias pantallas usaban el Teal fijo del
+// modo oscuro directamente, y otras el "primary" de Material3 (azul),
+// resultando en botones/acentos inconsistentes entre sí en modo claro.
+val LightBg = Color(0xFFF8FAFC)
 val LightSurface = Color(0xFFFFFFFF)
-val LightSurface2 = Color(0xFFEDEBE4)
-val LightHairline = Color(0xFFD8D4C8)
-val LightTextHi = Color(0xFF1C2126)
-val LightTextMid = Color(0xFF525C63)
-val LightTextLow = Color(0xFF7A8288)
-val LightGreenDim = Color(0xFFDBEFDF)
-val LightTealDim = Color(0xFFD6F1EE)
-val LightDangerBg = Color(0xFFFBE4E1)
+val LightSurface2 = Color(0xFFF1F5F9)
+val LightHairline = Color(0xFFE2E8F0)
+val LightTextHi = Color(0xFF0F172A)
+val LightTextMid = Color(0xFF475569)
+val LightTextLow = Color(0xFF64748B)
+val LightGreen = Color(0xFF059669) // Emerald 600 — se reserva para estados "OK"/online
+val LightGreenDim = Color(0xFFECFDF5) // Emerald 50
+val LightAccent = Color(0xFF0F9C90) // Teal oscurecido — acento principal de marca en modo claro
+val LightAccentDim = Color(0xFFE6F7F5) // Teal 50, fondo tenue del acento
+val LightDangerBg = Color(0xFFFEF2F2)
+val LightSecondary = Color(0xFFD97706) // Amber 600, reservado para advertencias puntuales
+val LightError = Color(0xFFDC2626) // Red 600 — DangerBorder (oscuro apagado) no tiene contraste sobre fondo blanco
+val LightChargeAccent = Color(0xFF9333EA) // Purple 600 — serie "Carga" en gráficos multilínea, modo claro

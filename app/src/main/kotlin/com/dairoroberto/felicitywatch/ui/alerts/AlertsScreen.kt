@@ -41,7 +41,6 @@ import androidx.hilt.navigation.compose.hiltViewModel
 import com.dairoroberto.felicitywatch.data.local.AlertRuleEntity
 import com.dairoroberto.felicitywatch.domain.model.AlertRuleType
 import com.dairoroberto.felicitywatch.ui.theme.LocalFelicityColors
-import com.dairoroberto.felicitywatch.ui.theme.Teal
 
 @Composable
 fun AlertsScreen(viewModel: AlertsViewModel = hiltViewModel()) {
@@ -132,7 +131,7 @@ private fun AlertRuleCard(
                 Switch(
                     checked = rule.enabled,
                     onCheckedChange = { onToggleEnabled() },
-                    colors = SwitchDefaults.colors(checkedTrackColor = Teal)
+                    colors = SwitchDefaults.colors(checkedTrackColor = colors.accent)
                 )
             }
 
@@ -243,13 +242,13 @@ private fun ChannelChip(
             Icon(
                 icon,
                 contentDescription = label,
-                tint = if (active) Teal else colors.textLow,
+                tint = if (active) colors.accent else colors.textLow,
                 modifier = Modifier.padding(bottom = 4.dp)
             )
             Text(
                 label,
                 style = MaterialTheme.typography.labelSmall,
-                color = if (active) Teal else colors.textLow,
+                color = if (active) colors.accent else colors.textLow,
                 fontWeight = FontWeight.Medium
             )
         }

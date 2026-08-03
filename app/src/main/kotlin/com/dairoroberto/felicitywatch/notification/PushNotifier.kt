@@ -11,13 +11,20 @@ import dagger.hilt.android.qualifiers.ApplicationContext
 import javax.inject.Inject
 import javax.inject.Singleton
 
+import com.dairoroberto.felicitywatch.data.repository.PushNotificationRepository
+import com.dairoroberto.felicitywatch.data.local.PushNotificationEntity
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
+
 /**
  * Notificación push local (guía sección 7.2). No usa FCM: el propio
  * Foreground Service dispara la notificación en el mismo dispositivo.
  */
 @Singleton
 class PushNotifier @Inject constructor(
-    @ApplicationContext private val context: Context
+    @ApplicationContext private val context: Context,
+    private val repository: PushNotificationRepository
 ) {
     fun notifyAlert(title: String, body: String, notificationId: Int): Boolean {
         val hasPermission = ContextCompat.checkSelfPermission(
@@ -36,7 +43,13 @@ class PushNotifier @Inject constructor(
             .setAutoCancel(true)
             .build()
 
-        return sendNotification(notificationId, notification)
+        val success = sendNotification(notificationId, notification)
+        if (success) {
+            CoroutineScope(Dispatchers.IO).launch {
+                repository.insert(PushNotificationEntity(title = title, body = body))
+            }
+        }
+        return success
     }
 
     @RequiresPermission(Manifest.permission.POST_NOTIFICATIONS)

@@ -7,8 +7,13 @@ import com.dairoroberto.felicitywatch.domain.model.AlertRuleType
 import com.dairoroberto.felicitywatch.domain.model.ComparisonOperator
 
 @Database(
-    entities = [AlertRuleEntity::class, AlertEventEntity::class, PowerReadingEntity::class],
-    version = 2,
+    entities = [
+        PowerReadingEntity::class,
+        AlertRuleEntity::class,
+        AlertEventEntity::class,
+        PushNotificationEntity::class
+    ],
+    version = 5,
     exportSchema = false
 )
 @TypeConverters(Converters::class)
@@ -16,6 +21,7 @@ abstract class AppDatabase : RoomDatabase() {
     abstract fun alertRuleDao(): AlertRuleDao
     abstract fun alertEventDao(): AlertEventDao
     abstract fun powerReadingDao(): PowerReadingDao
+    abstract fun pushNotificationDao(): PushNotificationDao
 
     companion object {
         const val DATABASE_NAME = "felicity_watch.db"
@@ -27,7 +33,7 @@ abstract class AppDatabase : RoomDatabase() {
                 enabled = true,
                 thresholdValue = 1.0,
                 comparisonOperator = null,
-                debounceSeconds = 60,
+                debounceSeconds = 5,
                 channelVoiceEnabled = true,
                 channelPushEnabled = true,
                 channelWhatsappEnabled = true,
@@ -38,7 +44,7 @@ abstract class AppDatabase : RoomDatabase() {
                 enabled = true,
                 thresholdValue = 1.0,
                 comparisonOperator = null,
-                debounceSeconds = 60,
+                debounceSeconds = 5,
                 channelVoiceEnabled = true,
                 channelPushEnabled = true,
                 channelWhatsappEnabled = true,

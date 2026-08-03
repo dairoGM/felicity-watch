@@ -15,7 +15,8 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
-import com.dairoroberto.felicitywatch.ui.theme.Teal
+import androidx.compose.runtime.getValue
+import com.dairoroberto.felicitywatch.ui.theme.LocalFelicityColors
 
 /**
  * Snackbar de confirmación con look propio (icono + acento teal, esquinas
@@ -24,6 +25,7 @@ import com.dairoroberto.felicitywatch.ui.theme.Teal
  */
 @Composable
 fun ElegantSnackbar(data: SnackbarData) {
+    val colors = LocalFelicityColors.current
     Snackbar(
         shape = RoundedCornerShape(14.dp),
         containerColor = MaterialTheme.colorScheme.surface,
@@ -34,7 +36,7 @@ fun ElegantSnackbar(data: SnackbarData) {
             Icon(
                 Icons.Default.CheckCircle,
                 contentDescription = null,
-                tint = Teal,
+                tint = colors.accent,
                 modifier = Modifier.size(20.dp)
             )
             Text(

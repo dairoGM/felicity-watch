@@ -15,5 +15,8 @@ data class PowerReadingEntity(
     val timestampEpochMillis: Long,
     val pvPowerWatts: Int?,
     val gridPowerWatts: Int?,
-    val socPercent: Int?
+    val socPercent: Int?,
+    val loadPowerWatts: Int? = null,
+    /** PV - consumo de la casa: positivo = cargando batería, negativo = descargando. */
+    val batteryPowerWatts: Int? = null
 )

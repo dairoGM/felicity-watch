@@ -20,16 +20,16 @@ private val FelicityDarkColorScheme = darkColorScheme(
     surfaceVariant = PanelSurface2,
     onSurfaceVariant = TextMid,
     outline = Hairline,
-    error = DangerBorder,
-    onError = TextHi
+    error = DarkError,
+    onError = PanelBg
 )
 
 private val FelicityLightColorScheme = lightColorScheme(
-    primary = Teal,
+    primary = LightAccent,
     onPrimary = LightSurface,
-    primaryContainer = LightTealDim,
+    primaryContainer = LightAccentDim,
     onPrimaryContainer = LightTextHi,
-    secondary = Orange,
+    secondary = LightSecondary,
     onSecondary = LightSurface,
     background = LightBg,
     onBackground = LightTextHi,
@@ -38,7 +38,7 @@ private val FelicityLightColorScheme = lightColorScheme(
     surfaceVariant = LightSurface2,
     onSurfaceVariant = LightTextMid,
     outline = LightHairline,
-    error = DangerBorder,
+    error = LightError,
     onError = LightSurface
 )
 

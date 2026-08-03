@@ -4,6 +4,8 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.dairoroberto.felicitywatch.data.local.PowerReadingEntity
 import com.dairoroberto.felicitywatch.data.repository.PowerHistoryRepository
+import com.dairoroberto.felicitywatch.domain.model.GridState
+import com.dairoroberto.felicitywatch.service.MonitoringStateHolder
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -22,8 +24,17 @@ data class DateRange(val start: LocalDate, val end: LocalDate)
 @OptIn(ExperimentalCoroutinesApi::class)
 @HiltViewModel
 class ReportViewModel @Inject constructor(
-    private val repository: PowerHistoryRepository
+    private val repository: PowerHistoryRepository,
+    stateHolder: MonitoringStateHolder
 ) : ViewModel() {
+
+    // Misma fuente que el Panel (guía sección 5): estado en vivo sin
+    // debounce para "con/sin corriente ahora", y lastGridChangeAt del
+    // estado ya CONFIRMADO (post-debounce) para "lleva X tiempo" — si el
+    // Reporte recalculara esto por su cuenta desde el historial crudo,
+    // discreparía del Panel al no aplicar el mismo debounce.
+    val liveGridState: StateFlow<GridState> = stateHolder.liveGridState
+    val lastGridChangeAt: StateFlow<Instant?> = stateHolder.lastGridChangeAt
 
     private val today = LocalDate.now()
 

@@ -19,13 +19,22 @@ class PowerHistoryRepository @Inject constructor(
     fun observeBetween(start: Instant, end: Instant): Flow<List<PowerReadingEntity>> =
         dao.observeBetween(start.toEpochMilli(), end.toEpochMilli())
 
-    suspend fun record(pvPowerWatts: Int?, gridPowerWatts: Int?, socPercent: Int?, now: Instant) {
+    suspend fun record(
+        pvPowerWatts: Int?,
+        gridPowerWatts: Int?,
+        socPercent: Int?,
+        loadPowerWatts: Int?,
+        batteryPowerWatts: Int?,
+        now: Instant
+    ) {
         dao.insert(
             PowerReadingEntity(
                 timestampEpochMillis = now.toEpochMilli(),
                 pvPowerWatts = pvPowerWatts,
                 gridPowerWatts = gridPowerWatts,
-                socPercent = socPercent
+                socPercent = socPercent,
+                loadPowerWatts = loadPowerWatts,
+                batteryPowerWatts = batteryPowerWatts
             )
         )
         // Poda liviana: retiene 30 días para que el Reporte con filtro de

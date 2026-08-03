@@ -18,7 +18,19 @@ data class FelicitySemanticColors(
     val green: Color,
     val greenDim: Color,
     val tealDim: Color,
-    val dangerBg: Color
+    val dangerBg: Color,
+    /** Acento principal de marca (Teal), correcto para el tema activo — usar
+     * esto en vez del color fijo `Teal` de Color.kt, que es solo la variante
+     * oscura y quedaba mal en modo claro (mismo tono sobre fondo blanco, sin
+     * suficiente contraste, y sin relación con el resto de acentos). */
+    val accent: Color,
+    /** Rojo de error/peligro correcto para el tema activo — reemplaza el uso
+     * directo de DangerBorder/ChartRed (fijos, pensados solo para fondo
+     * oscuro) en textos e indicadores de "sin corriente"/"offline". */
+    val error: Color,
+    /** Serie "Carga" en gráficos multilínea (morado) — antes era un
+     * Color(0xFF...) suelto en ReportScreen sin variante clara/oscura. */
+    val chargeAccent: Color
 )
 
 val DarkFelicityColors = FelicitySemanticColors(
@@ -29,7 +41,10 @@ val DarkFelicityColors = FelicitySemanticColors(
     green = Green,
     greenDim = GreenDim,
     tealDim = TealDim,
-    dangerBg = DangerBg
+    dangerBg = DangerBg,
+    accent = Teal,
+    error = DarkError,
+    chargeAccent = ChargeAccent
 )
 
 val LightFelicityColors = FelicitySemanticColors(
@@ -37,10 +52,13 @@ val LightFelicityColors = FelicitySemanticColors(
     hairline = LightHairline,
     textMid = LightTextMid,
     textLow = LightTextLow,
-    green = Green,
+    green = LightGreen,
     greenDim = LightGreenDim,
-    tealDim = LightTealDim,
-    dangerBg = LightDangerBg
+    tealDim = LightAccentDim,
+    dangerBg = LightDangerBg,
+    accent = LightAccent,
+    error = LightError,
+    chargeAccent = LightChargeAccent
 )
 
 val LocalFelicityColors = staticCompositionLocalOf { DarkFelicityColors }

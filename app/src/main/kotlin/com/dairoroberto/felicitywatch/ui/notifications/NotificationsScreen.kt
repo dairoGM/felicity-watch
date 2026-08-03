@@ -1,4 +1,4 @@
-package com.dairoroberto.felicitywatch.ui.history
+package com.dairoroberto.felicitywatch.ui.notifications
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
@@ -37,8 +37,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
-import com.dairoroberto.felicitywatch.data.local.AlertEventEntity
-import com.dairoroberto.felicitywatch.domain.model.AlertRuleType
+import com.dairoroberto.felicitywatch.data.local.PushNotificationEntity
 import com.dairoroberto.felicitywatch.ui.theme.LocalFelicityColors
 import java.time.ZoneId
 import java.time.format.DateTimeFormatter
@@ -46,16 +45,16 @@ import java.time.format.FormatStyle
 import java.util.Locale
 
 @Composable
-fun HistoryScreen(viewModel: HistoryViewModel = hiltViewModel()) {
-    val events by viewModel.events.collectAsState()
+fun NotificationsScreen(viewModel: NotificationsViewModel = hiltViewModel()) {
+    val notifications by viewModel.notifications.collectAsState()
     var showClearAllConfirm by remember { mutableStateOf(false) }
-    var eventPendingDelete by remember { mutableStateOf<AlertEventEntity?>(null) }
+    var notificationPendingDelete by remember { mutableStateOf<PushNotificationEntity?>(null) }
 
     if (showClearAllConfirm) {
         AlertDialog(
             onDismissRequest = { showClearAllConfirm = false },
-            title = { Text("¿Borrar todo el historial?") },
-            text = { Text("Se eliminarán todos los registros de alertas disparadas. Esta acción no se puede deshacer.") },
+            title = { Text("¿Borrar todas las notificaciones?") },
+            text = { Text("Se eliminarán todas las notificaciones push registradas en este teléfono. Esta acción no se puede deshacer.") },
             confirmButton = {
                 TextButton(onClick = {
                     viewModel.clearAll()
@@ -68,29 +67,29 @@ fun HistoryScreen(viewModel: HistoryViewModel = hiltViewModel()) {
         )
     }
 
-    eventPendingDelete?.let { event ->
+    notificationPendingDelete?.let { notification ->
         AlertDialog(
-            onDismissRequest = { eventPendingDelete = null },
-            title = { Text("¿Borrar este registro?") },
-            text = { Text(titleFor(event.ruleType) + " — " + event.message) },
+            onDismissRequest = { notificationPendingDelete = null },
+            title = { Text("¿Borrar esta notificación?") },
+            text = { Text("${notification.title} — ${notification.body}") },
             confirmButton = {
                 TextButton(onClick = {
-                    viewModel.delete(event.id)
-                    eventPendingDelete = null
+                    viewModel.delete(notification.id)
+                    notificationPendingDelete = null
                 }) { Text("Borrar") }
             },
             dismissButton = {
-                TextButton(onClick = { eventPendingDelete = null }) { Text("Cancelar") }
+                TextButton(onClick = { notificationPendingDelete = null }) { Text("Cancelar") }
             }
         )
     }
 
-    if (events.isEmpty()) {
+    if (notifications.isEmpty()) {
         Column(
             modifier = Modifier.fillMaxWidth().padding(24.dp)
         ) {
             Text(
-                "Todavía no se ha disparado ninguna alerta.",
+                "No hay notificaciones registradas.",
                 style = MaterialTheme.typography.bodyMedium,
                 color = LocalFelicityColors.current.textMid
             )
@@ -113,35 +112,47 @@ fun HistoryScreen(viewModel: HistoryViewModel = hiltViewModel()) {
                 }
             }
         }
-        items(events, key = { it.id }) { event ->
-            HistoryEventCard(event, onDelete = { eventPendingDelete = event })
+        items(notifications, key = { it.id }) { notification ->
+            NotificationCard(notification, onDelete = { notificationPendingDelete = notification })
         }
     }
 }
 
-private fun titleFor(type: AlertRuleType): String = when (type) {
-    AlertRuleType.GRID_OFFLINE -> "Corte de red"
-    AlertRuleType.GRID_ONLINE -> "Volvió la red"
-    AlertRuleType.BATTERY_SOC_LOW -> "Batería baja"
-    AlertRuleType.BATTERY_SOC_HIGH -> "Batería llena"
-}
+/**
+ * Sin un campo estructurado (PushNotificationEntity solo guarda título/cuerpo
+ * de texto libre), se infiere el sentido de la notificación por palabras
+ * clave — cubre tanto el mensaje por defecto ("perdido"/"vuelto la corriente")
+ * como variantes que el usuario haya personalizado en Ajustes de Alertas.
+ */
+private enum class GridNotificationTone { RESTORED, LOST, OTHER }
 
-/** Verde para "volvió la corriente", rojo para "se fue" — null para el resto
- * de reglas (batería), que no tienen una connotación binaria de color. */
-private fun gridAccentColorFor(
-    type: AlertRuleType,
-    colors: com.dairoroberto.felicitywatch.ui.theme.FelicitySemanticColors
-): androidx.compose.ui.graphics.Color? = when (type) {
-    AlertRuleType.GRID_ONLINE -> colors.green
-    AlertRuleType.GRID_OFFLINE -> colors.error
-    else -> null
+private fun gridToneFor(title: String, body: String): GridNotificationTone {
+    val text = "$title $body".lowercase()
+    val mentionsGrid = "corriente" in text || "red eléctrica" in text || "electricidad" in text
+    if (!mentionsGrid) return GridNotificationTone.OTHER
+    // "vuelto" cubre el mensaje por defecto real ("Ha vuelto la corriente
+    // eléctrica de la calle") — "volvió"/"volvio" (pretérito) no lo
+    // detectaban porque el mensaje usa participio ("ha vuelto"), causando
+    // que solo el rojo (offline) se marcara y el verde nunca apareciera.
+    val restoredKeywords = listOf("vuelto", "volvió", "volvio", "restablec", "recuper")
+    val lostKeywords = listOf("perdido", "se fue", "corte", "sin corriente", "falló", "fallo")
+    return when {
+        restoredKeywords.any { it in text } -> GridNotificationTone.RESTORED
+        lostKeywords.any { it in text } -> GridNotificationTone.LOST
+        else -> GridNotificationTone.OTHER
+    }
 }
 
 @Composable
-private fun HistoryEventCard(event: AlertEventEntity, onDelete: () -> Unit) {
-    val formatter = DateTimeFormatter.ofLocalizedDateTime(FormatStyle.SHORT).withLocale(Locale("es", "ES"))
+private fun NotificationCard(notification: PushNotificationEntity, onDelete: () -> Unit) {
+    val formatter = DateTimeFormatter.ofLocalizedDateTime(FormatStyle.SHORT)
     val colors = LocalFelicityColors.current
-    val accentColor = gridAccentColorFor(event.ruleType, colors)
+    val tone = gridToneFor(notification.title, notification.body)
+    val accentColor = when (tone) {
+        GridNotificationTone.RESTORED -> colors.green
+        GridNotificationTone.LOST -> colors.error
+        GridNotificationTone.OTHER -> null
+    }
 
     Card(colors = CardDefaults.cardColors(containerColor = colors.surface2), shape = RoundedCornerShape(11.dp)) {
         Row(Modifier.fillMaxWidth().height(IntrinsicSize.Min)) {
@@ -160,10 +171,10 @@ private fun HistoryEventCard(event: AlertEventEntity, onDelete: () -> Unit) {
                     horizontalArrangement = Arrangement.SpaceBetween,
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    Text(titleFor(event.ruleType), style = MaterialTheme.typography.titleSmall)
+                    Text(notification.title, style = MaterialTheme.typography.titleSmall)
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         Text(
-                            formatter.format(event.triggeredAt.atZone(ZoneId.systemDefault())),
+                            formatter.format(notification.receivedAt.atZone(ZoneId.systemDefault())),
                             style = MaterialTheme.typography.labelSmall,
                             color = colors.textLow
                         )
@@ -176,32 +187,8 @@ private fun HistoryEventCard(event: AlertEventEntity, onDelete: () -> Unit) {
                         }
                     }
                 }
-                Text(event.message, style = MaterialTheme.typography.bodyMedium, color = colors.textMid, modifier = Modifier.padding(top = 4.dp))
-
-                Row(modifier = Modifier.padding(top = 8.dp), horizontalArrangement = Arrangement.spacedBy(14.dp)) {
-                    ChannelStatus("Voz", event.voiceSent)
-                    ChannelStatus("Push", event.pushSent)
-                    ChannelStatus("WhatsApp", event.whatsappSent)
-                }
-
-                if (event.whatsappError != null) {
-                    Text(
-                        "WhatsApp: ${event.whatsappError}",
-                        style = MaterialTheme.typography.labelSmall,
-                        color = MaterialTheme.colorScheme.error,
-                        modifier = Modifier.padding(top = 6.dp)
-                    )
-                }
+                Text(notification.body, style = MaterialTheme.typography.bodyMedium, color = colors.textMid, modifier = Modifier.padding(top = 4.dp))
             }
         }
-    }
-}
-
-@Composable
-private fun ChannelStatus(label: String, success: Boolean) {
-    val colors = LocalFelicityColors.current
-    Row {
-        Text(if (success) "✓" else "✗", color = if (success) colors.green else MaterialTheme.colorScheme.error)
-        Text(" $label", style = MaterialTheme.typography.labelSmall, color = colors.textMid)
     }
 }

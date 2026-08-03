@@ -6,6 +6,7 @@ import com.dairoroberto.felicitywatch.data.local.AlertEventDao
 import com.dairoroberto.felicitywatch.data.local.AlertRuleDao
 import com.dairoroberto.felicitywatch.data.local.AppDatabase
 import com.dairoroberto.felicitywatch.data.local.PowerReadingDao
+import com.dairoroberto.felicitywatch.data.local.PushNotificationDao
 import dagger.Module
 import dagger.Provides
 import dagger.hilt.InstallIn
@@ -34,4 +35,7 @@ object DatabaseModule {
 
     @Provides
     fun providePowerReadingDao(database: AppDatabase): PowerReadingDao = database.powerReadingDao()
+
+    @Provides
+    fun providePushNotificationDao(database: AppDatabase): PushNotificationDao = database.pushNotificationDao()
 }

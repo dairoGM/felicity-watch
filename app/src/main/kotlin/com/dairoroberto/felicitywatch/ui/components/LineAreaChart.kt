@@ -1,7 +1,7 @@
 package com.dairoroberto.felicitywatch.ui.components
 
 import androidx.compose.foundation.Canvas
-import androidx.compose.foundation.gestures.detectDragGestures
+import androidx.compose.foundation.gestures.detectTransformGestures
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -11,6 +11,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
@@ -23,6 +24,58 @@ import androidx.compose.ui.unit.dp
 
 data class ChartPoint(val x: Float, val y: Float)
 
+data class NiceAxis(val min: Float, val max: Float, val step: Float, val labelCount: Int)
+
+fun niceAxisStep(range: Float, targetSteps: Int = 5): Float {
+    if (range <= 0f) return 1f
+    val rawStep = range / targetSteps
+    val magnitude = Math.pow(10.0, Math.floor(Math.log10(rawStep.toDouble()))).toFloat()
+    val normalized = rawStep / magnitude
+    val niceNormalized = when {
+        normalized <= 1.5f -> 1f
+        normalized <= 2.5f -> 2f
+        normalized <= 5f -> 5f
+        else -> 10f
+    }
+    return niceNormalized * magnitude
+}
+
+fun niceAxis(dataMin: Float, dataMax: Float, targetSteps: Int = 5): NiceAxis {
+    val range = (dataMax - dataMin).coerceAtLeast(0.01f)
+    val step = niceAxisStep(range, targetSteps)
+    val niceMin = kotlin.math.floor(dataMin / step) * step
+    val niceMax = kotlin.math.ceil(dataMax / step) * step
+    val labelCount = ((niceMax - niceMin) / step).let { kotlin.math.round(it).toInt() } + 1
+    return NiceAxis(niceMin, niceMax, step, labelCount)
+}
+
+/** Estado de zoom/pan compartido por [LineAreaChart] y [MultiLineChart] —
+ * se saca (hoist) al llamador para que ReportScreen pueda calcular el
+ * rango X actualmente visible y dibujar un eje X de horas SINCRONIZADO con
+ * el zoom, en vez de un eje fijo que ya no corresponde a lo que se ve tras
+ * hacer pinch-zoom o pan. */
+class ChartZoomState {
+    var scale by mutableStateOf(1f)
+    var offset by mutableStateOf(0f)
+
+    /** Rango X visible actualmente, dado el rango completo de datos [baseMinX]..[baseMaxX]. */
+    fun visibleRange(baseMinX: Float, baseMaxX: Float, canvasWidthPx: Float): Pair<Float, Float> {
+        val dataRange = (baseMaxX - baseMinX).coerceAtLeast(0.01f)
+        val visibleRange = dataRange / scale
+        val offsetFraction = if (scale > 1f && canvasWidthPx > 0f) {
+            -offset / (canvasWidthPx * scale - canvasWidthPx)
+        } else 0f
+        val minX = baseMinX + offsetFraction * (dataRange - visibleRange)
+        return minX to (minX + visibleRange)
+    }
+}
+
+/** Alto fijo del canvas de [LineAreaChart]/[MultiLineChart] — expuesto para
+ * que las etiquetas superpuestas del eje Y (dibujadas fuera del Canvas con
+ * texto de Compose) puedan igualar esta altura exacta y sus marcas queden
+ * alineadas en px con las líneas de cuadrícula reales, no aproximadas. */
+val CHART_HEIGHT = 180.dp
+
 /**
  * Gráfico de área/línea liviano dibujado a mano con Canvas (sin librería de
  * terceros): línea suave con relleno degradado bajo la curva, líneas de
@@ -34,35 +87,63 @@ data class ChartPoint(val x: Float, val y: Float)
 fun LineAreaChart(
     points: List<ChartPoint>,
     lineColor: Color,
+    gradientColors: List<Color>? = null,
     gridColor: Color,
     modifier: Modifier = Modifier,
     minY: Float = 0f,
     maxYOverride: Float? = null,
+    minXOverride: Float? = null,
+    maxXOverride: Float? = null,
+    yAxis: NiceAxis? = null,
+    yUnit: String = "",
+    textColor: Color = Color.Gray,
+    zoomState: ChartZoomState = remember { ChartZoomState() },
     tooltipLabel: (ChartPoint) -> Pair<String, String> = { it.y.toInt().toString() to "" }
 ) {
     var selectedIndex by remember(points) { mutableStateOf<Int?>(null) }
+    var scale by zoomState::scale
+    var offset by zoomState::offset
 
     Canvas(
         modifier = modifier
             .fillMaxWidth()
-            .height(180.dp)
-            .pointerInput(points) {
-                detectTapGestures { offset ->
-                    selectedIndex = nearestIndex(points, offset.x, size.width.toFloat())
+            .height(CHART_HEIGHT)
+            .clipToBounds()
+            .pointerInput(points, scale, offset) {
+                detectTapGestures { tapOffset ->
+                    val baseMinX = minXOverride ?: points.minOfOrNull { it.x } ?: 0f
+                    val baseMaxX = (maxXOverride ?: points.maxOfOrNull { it.x } ?: 0f).coerceAtLeast(baseMinX + 1f)
+                    val dataRange = baseMaxX - baseMinX
+                    val visibleRange = dataRange / scale
+                    val offsetFraction = if (scale > 1f) -offset / (size.width * scale - size.width) else 0f
+                    val currentMinX = baseMinX + offsetFraction * (dataRange - visibleRange)
+                    val currentMaxX = currentMinX + visibleRange
+                    
+                    val touchDataX = currentMinX + (tapOffset.x / size.width) * (currentMaxX - currentMinX)
+                    selectedIndex = points.indices.minByOrNull { kotlin.math.abs(points[it].x - touchDataX) }
                 }
             }
-            .pointerInput(points) {
-                detectDragGestures(
-                    onDragStart = { offset -> selectedIndex = nearestIndex(points, offset.x, size.width.toFloat()) },
-                    onDrag = { change, _ -> selectedIndex = nearestIndex(points, change.position.x, size.width.toFloat()) }
-                )
+            .pointerInput(Unit) {
+                detectTransformGestures { centroid, pan, zoom, _ ->
+                    val oldScale = scale
+                    scale = (scale * zoom).coerceIn(1f, 24f)
+                    val scaleFactor = scale / oldScale
+                    offset = (offset - centroid.x) * scaleFactor + centroid.x + pan.x
+                    val minOffset = size.width - size.width * scale
+                    offset = offset.coerceIn(minOffset, 0f)
+                }
             }
     ) {
         if (points.size < 2) return@Canvas
 
         val maxY = (maxYOverride ?: points.maxOf { it.y }).coerceAtLeast(1f)
-        val minX = points.minOf { it.x }
-        val maxX = points.maxOf { it.x }.coerceAtLeast(minX + 1f)
+        val baseMinX = minXOverride ?: points.minOf { it.x }
+        val baseMaxX = (maxXOverride ?: points.maxOf { it.x }).coerceAtLeast(baseMinX + 1f)
+        val dataRange = baseMaxX - baseMinX
+        val visibleRange = dataRange / scale
+        val offsetFraction = if (scale > 1f) -offset / (size.width * scale - size.width) else 0f
+        val minX = baseMinX + offsetFraction * (dataRange - visibleRange)
+        val maxX = minX + visibleRange
 
         fun xToPx(x: Float) = (x - minX) / (maxX - minX) * size.width
         fun yToPx(y: Float) = size.height - ((y - minY) / (maxY - minY) * size.height)
@@ -99,15 +180,31 @@ fun LineAreaChart(
         fillPath.lineTo(xToPx(points.last().x), size.height)
         fillPath.close()
 
-        drawPath(
-            path = fillPath,
-            brush = Brush.verticalGradient(
+        val actualFillBrush = if (gradientColors != null) {
+            Brush.verticalGradient(
+                colors = listOf(
+                    gradientColors.first().copy(alpha = 0.4f),
+                    gradientColors.last().copy(alpha = 0.05f)
+                )
+            )
+        } else {
+            Brush.verticalGradient(
                 colors = listOf(lineColor.copy(alpha = 0.35f), lineColor.copy(alpha = 0.02f))
             )
+        }
+        drawPath(
+            path = fillPath,
+            brush = actualFillBrush
         )
+
+        val actualLineBrush = if (gradientColors != null) {
+            Brush.verticalGradient(colors = gradientColors)
+        } else {
+            androidx.compose.ui.graphics.SolidColor(lineColor)
+        }
         drawPath(
             path = linePath,
-            color = lineColor,
+            brush = actualLineBrush,
             style = Stroke(width = 3f)
         )
 
@@ -117,29 +214,56 @@ fun LineAreaChart(
             val px = xToPx(point.x)
             val py = yToPx(point.y)
 
-            // Línea vertical punteada + punto resaltado sobre la curva.
-            drawLine(
-                color = lineColor.copy(alpha = 0.6f),
-                start = Offset(px, 0f),
-                end = Offset(px, size.height),
-                strokeWidth = 1.5f,
-                pathEffect = dashEffect
-            )
-            drawCircle(color = lineColor, radius = 6f, center = Offset(px, py))
-            drawCircle(color = Color.White, radius = 3f, center = Offset(px, py))
+            if (px in 0f..size.width) {
+                val activeColor = if (gradientColors != null) {
+                    val fraction = (py / size.height).coerceIn(0f, 1f)
+                    // Interpolación simple entre los dos colores del degradado
+                    val c1 = gradientColors.first()
+                    val c2 = gradientColors.last()
+                    Color(
+                        red = c1.red + (c2.red - c1.red) * fraction,
+                        green = c1.green + (c2.green - c1.green) * fraction,
+                        blue = c1.blue + (c2.blue - c1.blue) * fraction,
+                        alpha = 1f
+                    )
+                } else {
+                    lineColor
+                }
 
-            val (valueText, timeText) = tooltipLabel(point)
-            drawTooltip(px, py, timeText, valueText, lineColor)
+                drawLine(
+                    color = activeColor.copy(alpha = 0.6f),
+                    start = Offset(px, 0f),
+                    end = Offset(px, size.height),
+                    strokeWidth = 1.5f,
+                    pathEffect = dashEffect
+                )
+                drawCircle(color = activeColor, radius = 6f, center = Offset(px, py))
+                drawCircle(color = Color.White, radius = 3f, center = Offset(px, py))
+                val (valueText, timeText) = tooltipLabel(point)
+                drawTooltip(px, py, timeText, valueText, activeColor)
+            }
+        }
+
+        if (yAxis != null) {
+            val textPaint = android.graphics.Paint().apply {
+                color = textColor.toArgb()
+                textSize = 10f * density
+                isAntiAlias = true
+            }
+            for (i in 0 until yAxis.labelCount) {
+                val value = yAxis.max - yAxis.step * i
+                val fraction = if (yAxis.max == yAxis.min) 0f else (yAxis.max - value) / (yAxis.max - yAxis.min)
+                // y = 0 is top, y = height is bottom. gridLines are distributed evenly.
+                val py = size.height * fraction
+                drawContext.canvas.nativeCanvas.drawText(
+                    "${value.toInt()} $yUnit",
+                    12f * density,
+                    (py - 4f * density).coerceAtLeast(10f * density),
+                    textPaint
+                )
+            }
         }
     }
-}
-
-private fun nearestIndex(points: List<ChartPoint>, touchX: Float, canvasWidth: Float): Int {
-    if (points.isEmpty()) return 0
-    val minX = points.minOf { it.x }
-    val maxX = points.maxOf { it.x }.coerceAtLeast(minX + 1f)
-    val targetX = minX + (touchX / canvasWidth) * (maxX - minX)
-    return points.indices.minBy { kotlin.math.abs(points[it].x - targetX) }
 }
 
 /** Dibujado con el Canvas nativo de Android (Paint/drawText) porque

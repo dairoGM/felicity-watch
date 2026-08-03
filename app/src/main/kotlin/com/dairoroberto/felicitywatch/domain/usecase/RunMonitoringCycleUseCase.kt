@@ -52,10 +52,17 @@ class RunMonitoringCycleUseCase @Inject constructor(
             inverterRawJson = reading.inverterRawJson,
             batteryRawJson = reading.batteryRawJson
         )
+        val pvPowerWatts = reading.inverter?.pvPowerWatts
+        val loadPowerWatts = reading.inverter?.loadPowerWatts
+        val batteryPowerWatts = if (pvPowerWatts != null && loadPowerWatts != null) {
+            pvPowerWatts - loadPowerWatts
+        } else null
         powerHistoryRepository.record(
-            pvPowerWatts = reading.inverter?.pvPowerWatts,
+            pvPowerWatts = pvPowerWatts,
             gridPowerWatts = reading.inverter?.gridPowerWatts,
             socPercent = reading.battery?.socPercent,
+            loadPowerWatts = loadPowerWatts,
+            batteryPowerWatts = batteryPowerWatts,
             now = now
         )
 

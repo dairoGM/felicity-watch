@@ -44,7 +44,6 @@ import com.dairoroberto.felicitywatch.ui.components.EmailField
 import com.dairoroberto.felicitywatch.ui.components.PasswordField
 import com.dairoroberto.felicitywatch.ui.components.PhoneField
 import com.dairoroberto.felicitywatch.ui.theme.LocalFelicityColors
-import com.dairoroberto.felicitywatch.ui.theme.Teal
 
 private const val TOTAL_STEPS = 4
 
@@ -73,7 +72,7 @@ fun OnboardingScreen(
             modifier = Modifier
                 .fillMaxWidth()
                 .padding(top = 8.dp),
-            color = Teal,
+            color = colors.accent,
             trackColor = colors.hairline
         )
         Text(
@@ -166,6 +165,6 @@ private fun StepIcon(icon: ImageVector) {
             .background(colors.tealDim, CircleShape),
         contentAlignment = Alignment.Center
     ) {
-        Icon(icon, contentDescription = null, tint = Teal, modifier = Modifier.size(32.dp))
+        Icon(icon, contentDescription = null, tint = colors.accent, modifier = Modifier.size(32.dp))
     }
 }
