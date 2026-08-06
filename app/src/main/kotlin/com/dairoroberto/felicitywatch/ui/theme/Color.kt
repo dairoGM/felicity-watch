@@ -22,23 +22,28 @@ val ChartRed = Color(0xFFEF4444)
 val DarkError = Color(0xFFEF4444) // Rojo saturado — sí tiene contraste correcto sobre fondos oscuros
 val ChargeAccent = Color(0xFFB794F6) // Morado — serie "Carga" en gráficos multilínea, modo oscuro
 
-// Paleta clara (modo claro), diseño elegante, profesional y minimalista.
-// Mismo acento Teal de marca que el modo oscuro (oscurecido para contraste
-// AA sobre fondo blanco) — antes varias pantallas usaban el Teal fijo del
-// modo oscuro directamente, y otras el "primary" de Material3 (azul),
-// resultando en botones/acentos inconsistentes entre sí en modo claro.
-val LightBg = Color(0xFFF8FAFC)
+// Paleta clara (modo claro) — estilo "SaaS premium" minimalista (Linear/
+// Stripe): fondo casi blanco con MUY poco contraste entre background y
+// surface (la separación la da la sombra, no el color), hairline casi
+// imperceptible, y el acento Teal reservado a lo realmente interactivo en
+// vez de decorar cada ícono — todo boton/switch/tab comparte esta misma
+// fuente de verdad (LocalFelicityColors.current.accent) para que no
+// vuelva a haber mezcla de azul de Material3 con Teal fijo como antes.
+val LightBg = Color(0xFFF4F4F6)
 val LightSurface = Color(0xFFFFFFFF)
-val LightSurface2 = Color(0xFFF1F5F9)
-val LightHairline = Color(0xFFE2E8F0)
-val LightTextHi = Color(0xFF0F172A)
-val LightTextMid = Color(0xFF475569)
-val LightTextLow = Color(0xFF64748B)
-val LightGreen = Color(0xFF059669) // Emerald 600 — se reserva para estados "OK"/online
-val LightGreenDim = Color(0xFFECFDF5) // Emerald 50
-val LightAccent = Color(0xFF0F9C90) // Teal oscurecido — acento principal de marca en modo claro
-val LightAccentDim = Color(0xFFE6F7F5) // Teal 50, fondo tenue del acento
+val LightSurface2 = Color(0xFFFFFFFF)
+val LightHairline = Color(0xFFE8E8EC)
+val LightTextHi = Color(0xFF18181B)
+val LightTextMid = Color(0xFF52525B)
+val LightTextLow = Color(0xFF8A8A94)
+val LightGreen = Color(0xFF16A34A) // Green 600 — estados "OK"/online
+val LightGreenDim = Color(0xFFF0FDF4) // Green 50
+val LightAccent = Color(0xFF0D9488) // Teal 600 — acento principal de marca en modo claro
+val LightAccentDim = Color(0xFFF0FDFA) // Teal 50, fondo tenue del acento
 val LightDangerBg = Color(0xFFFEF2F2)
 val LightSecondary = Color(0xFFD97706) // Amber 600, reservado para advertencias puntuales
 val LightError = Color(0xFFDC2626) // Red 600 — DangerBorder (oscuro apagado) no tiene contraste sobre fondo blanco
 val LightChargeAccent = Color(0xFF9333EA) // Purple 600 — serie "Carga" en gráficos multilínea, modo claro
+/** Tinte de sombra neutro (no negro puro) para que las Cards floten sobre
+ * el fondo casi blanco sin necesitar un borde/hairline marcado. */
+val LightShadow = Color(0xFF0F172A)

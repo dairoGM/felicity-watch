@@ -5,6 +5,7 @@ import androidx.room.Room
 import com.dairoroberto.felicitywatch.data.local.AlertEventDao
 import com.dairoroberto.felicitywatch.data.local.AlertRuleDao
 import com.dairoroberto.felicitywatch.data.local.AppDatabase
+import com.dairoroberto.felicitywatch.data.local.Migrations
 import com.dairoroberto.felicitywatch.data.local.PowerReadingDao
 import com.dairoroberto.felicitywatch.data.local.PushNotificationDao
 import dagger.Module
@@ -22,9 +23,10 @@ object DatabaseModule {
     @Singleton
     fun provideAppDatabase(@ApplicationContext context: Context): AppDatabase =
         Room.databaseBuilder(context, AppDatabase::class.java, AppDatabase.DATABASE_NAME)
-            // Sin usuarios en producción todavía: destructiva es aceptable
-            // en vez de escribir una migración formal para este cambio.
-            .fallbackToDestructiveMigration()
+            // Migraciones formales explícitas (ver Migrations.kt) — la app ya
+            // está en uso real, así que ya no es aceptable borrar el
+            // historial local en cada actualización que agregue un campo.
+            .addMigrations(*Migrations.ALL)
             .build()
 
     @Provides

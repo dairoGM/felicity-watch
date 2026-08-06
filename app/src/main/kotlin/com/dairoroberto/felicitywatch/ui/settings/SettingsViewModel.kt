@@ -5,6 +5,7 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.dairoroberto.felicitywatch.data.local.AppPreferences
 import com.dairoroberto.felicitywatch.data.local.CredentialsStore
+import com.dairoroberto.felicitywatch.data.remote.RawResponseRecorder
 import com.dairoroberto.felicitywatch.data.repository.AlertEventRepository
 import com.dairoroberto.felicitywatch.data.repository.AlertRuleRepository
 import com.dairoroberto.felicitywatch.data.repository.FelicityRepository
@@ -48,12 +49,16 @@ class SettingsViewModel @Inject constructor(
     private val whatsappSender: WhatsappAlertSender,
     private val runMonitoringCycleUseCase: RunMonitoringCycleUseCase,
     stateHolder: MonitoringStateHolder,
+    private val rawResponseRecorder: RawResponseRecorder,
     @ApplicationContext private val context: Context
 ) : ViewModel() {
 
     val serviceRunning: StateFlow<Boolean> = stateHolder.serviceRunning
     val lastInverterRawJson: StateFlow<String?> = stateHolder.lastInverterRawJson
     val lastBatteryRawJson: StateFlow<String?> = stateHolder.lastBatteryRawJson
+
+    private val _isLoadingDeviceList = MutableStateFlow(false)
+    val isLoadingDeviceList: StateFlow<Boolean> = _isLoadingDeviceList
 
     val pollingIntervalSeconds: StateFlow<Int> = appPreferences.pollingIntervalSeconds
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), AppPreferences.DEFAULT_POLLING_INTERVAL_SECONDS)
@@ -187,6 +192,28 @@ class SettingsViewModel @Inject constructor(
             onDone()
             emit("La app se restableció a los valores de fábrica")
         }
+    }
+
+    /** Dispara una consulta de dispositivos para que el interceptor capture
+     * la respuesta cruda de list_device_all_type (RawResponseRecorder no
+     * graba nada hasta que esta llamada de red ocurra al menos una vez). */
+    fun refreshDeviceListForDiagnostics() {
+        if (_isLoadingDeviceList.value) return
+        viewModelScope.launch {
+            _isLoadingDeviceList.value = true
+            try {
+                felicityRepository.fetchDevices()
+                emit("Respuesta de dispositivos capturada, ya se puede copiar")
+            } catch (e: Exception) {
+                emit("Falló la consulta de dispositivos: ${describeMonitoringError(e)}")
+            } finally {
+                _isLoadingDeviceList.value = false
+            }
+        }
+    }
+
+    fun copyDeviceListJsonToClipboard() {
+        copyRawJsonToClipboard("listado de dispositivos", rawResponseRecorder.lastDeviceListBody)
     }
 
     /** Diagnóstico sin USB: copia la última respuesta cruda de Felicity para pegarla donde haga falta. */

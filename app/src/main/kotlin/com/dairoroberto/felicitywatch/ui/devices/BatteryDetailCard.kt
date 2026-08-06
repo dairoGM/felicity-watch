@@ -16,7 +16,6 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Shadow
 import androidx.compose.ui.text.font.FontWeight
@@ -25,13 +24,17 @@ import com.dairoroberto.felicitywatch.domain.model.BatteryReading
 import com.dairoroberto.felicitywatch.ui.theme.LocalFelicityColors
 import java.util.Locale
 
-/** Barra de SOC con degradado rojo→verde calcada de la app oficial de
- * Felicity, más el detalle completo de límites del BMS y energía restante. */
+/** Barra de SOC con UN SOLO color sólido que varía según el % (rojo en 0%,
+ * verde en 100%, interpolando por el medio) — antes usaba un degradado
+ * horizontal fijo rojo→verde estirado sobre el relleno, así que aunque la
+ * batería estuviera al 100% el tramo izquierdo del relleno seguía
+ * mostrándose rojo/ámbar en vez de verde uniforme. */
 @Composable
 fun BatteryDetailCard(battery: BatteryReading?, modifier: Modifier = Modifier) {
     val colors = LocalFelicityColors.current
     val soc = battery?.socPercent
     val charging = (battery?.current ?: 0.0) > 0
+    val socColor = soc?.let { socColorFor(it, colors) } ?: colors.textLow
 
     Column(modifier = modifier.fillMaxWidth()) {
         Box(
@@ -49,11 +52,7 @@ fun BatteryDetailCard(battery: BatteryReading?, modifier: Modifier = Modifier) {
                         .height(48.dp)
                         .align(Alignment.CenterStart)
                         .clip(RoundedCornerShape(10.dp))
-                        .background(
-                            Brush.horizontalGradient(
-                                colors = listOf(colors.error, MaterialTheme.colorScheme.secondary, colors.green)
-                            )
-                        )
+                        .background(socColor)
                 )
             }
             // Texto centrado en TODA la barra (no solo en el relleno), en
@@ -109,6 +108,28 @@ fun BatteryDetailCard(battery: BatteryReading?, modifier: Modifier = Modifier) {
             )
         )
     }
+}
+
+/** Interpola linealmente rojo→ámbar (0-50%) y ámbar→verde (50-100%) — un
+ * solo color sólido para el % actual, no un degradado fijo sobre la barra. */
+private fun socColorFor(soc: Int, colors: com.dairoroberto.felicitywatch.ui.theme.FelicitySemanticColors): Color {
+    val amber = Color(0xFFF59E0B)
+    val fraction = (soc / 100f).coerceIn(0f, 1f)
+    return if (fraction <= 0.5f) {
+        lerp(colors.error, amber, fraction / 0.5f)
+    } else {
+        lerp(amber, colors.green, (fraction - 0.5f) / 0.5f)
+    }
+}
+
+private fun lerp(start: Color, end: Color, fraction: Float): Color {
+    val f = fraction.coerceIn(0f, 1f)
+    return Color(
+        red = start.red + (end.red - start.red) * f,
+        green = start.green + (end.green - start.green) * f,
+        blue = start.blue + (end.blue - start.blue) * f,
+        alpha = 1f
+    )
 }
 
 @Composable

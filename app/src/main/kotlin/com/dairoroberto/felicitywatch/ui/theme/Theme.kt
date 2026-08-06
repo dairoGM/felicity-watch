@@ -35,6 +35,11 @@ private val FelicityLightColorScheme = lightColorScheme(
     onBackground = LightTextHi,
     surface = LightSurface,
     onSurface = LightTextHi,
+    // surfaceTint = fondo por defecto: sin esto, Material3 tiñe cada
+    // Card elevada con "primary" (Teal), dándoles un tono verdoso no
+    // intencional — el look SaaS que buscamos separa las Cards del fondo
+    // con sombra neutra (ver LightShadow), no con un tinte de color.
+    surfaceTint = LightSurface,
     surfaceVariant = LightSurface2,
     onSurfaceVariant = LightTextMid,
     outline = LightHairline,

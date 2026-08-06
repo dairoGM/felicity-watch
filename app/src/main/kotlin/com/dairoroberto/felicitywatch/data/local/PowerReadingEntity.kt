@@ -18,5 +18,11 @@ data class PowerReadingEntity(
     val socPercent: Int?,
     val loadPowerWatts: Int? = null,
     /** PV - consumo de la casa: positivo = cargando batería, negativo = descargando. */
-    val batteryPowerWatts: Int? = null
+    val batteryPowerWatts: Int? = null,
+    /** Contadores de energía del DÍA reportados por el propio inversor
+     * (ePvToday/eLoadToday) — se resetean a 0 cada medianoche en el equipo,
+     * así que el reporte diario toma el ÚLTIMO valor leído en cada día, no
+     * una suma (el equipo ya acumula internamente). */
+    val pvEnergyTodayKwh: Double? = null,
+    val loadEnergyTodayKwh: Double? = null
 )

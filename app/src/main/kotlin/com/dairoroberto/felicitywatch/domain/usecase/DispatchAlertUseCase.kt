@@ -33,7 +33,7 @@ class DispatchAlertUseCase @Inject constructor(
         val pushDeferred = async {
             if (!rule.channelPushEnabled) return@async false
             runCatching {
-                pushNotifier.notifyAlert(title = "Felicity Watch", body = message, notificationId = rule.type.ordinal)
+                pushNotifier.notifyAlert(title = "Felicity Watch", body = message, notificationId = rule.type.ordinal, ruleType = rule.type)
             }.getOrDefault(false)
         }
         val whatsappDeferred = async {

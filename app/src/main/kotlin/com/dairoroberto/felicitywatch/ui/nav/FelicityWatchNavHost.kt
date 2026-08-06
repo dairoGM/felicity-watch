@@ -164,8 +164,8 @@ fun FelicityWatchNavHost(
                 MoreScreen(
                     items = listOf(
                         MoreMenuItem(
-                            label = "Alertas",
-                            subtitle = "Reglas, eventos y notificaciones push",
+                            label = "Historial de alertas",
+                            subtitle = "Eventos disparados y notificaciones push recibidas",
                             icon = Icons.Default.DisplaySettings,
                             onClick = { navController.navigate(MoreDestination.Alerts.route) { launchSingleTop = true } }
                         ),

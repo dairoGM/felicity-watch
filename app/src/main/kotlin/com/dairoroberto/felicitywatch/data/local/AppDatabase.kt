@@ -13,8 +13,8 @@ import com.dairoroberto.felicitywatch.domain.model.ComparisonOperator
         AlertEventEntity::class,
         PushNotificationEntity::class
     ],
-    version = 5,
-    exportSchema = false
+    version = 7,
+    exportSchema = true
 )
 @TypeConverters(Converters::class)
 abstract class AppDatabase : RoomDatabase() {

@@ -38,6 +38,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import com.dairoroberto.felicitywatch.data.local.PushNotificationEntity
+import com.dairoroberto.felicitywatch.domain.model.AlertRuleType
 import com.dairoroberto.felicitywatch.ui.theme.LocalFelicityColors
 import java.time.ZoneId
 import java.time.format.DateTimeFormatter
@@ -119,21 +120,26 @@ fun NotificationsScreen(viewModel: NotificationsViewModel = hiltViewModel()) {
 }
 
 /**
- * Sin un campo estructurado (PushNotificationEntity solo guarda título/cuerpo
- * de texto libre), se infiere el sentido de la notificación por palabras
- * clave — cubre tanto el mensaje por defecto ("perdido"/"vuelto la corriente")
- * como variantes que el usuario haya personalizado en Ajustes de Alertas.
+ * Fuente primaria: el tipo real de regla (ruleType), guardado desde que
+ * existe ese campo — no depende de palabras exactas en el mensaje, así que
+ * sigue funcionando aunque el usuario personalice el texto en Ajustes >
+ * Alertas. Fallback a detectar por palabras clave solo para notificaciones
+ * guardadas ANTES de que existiera ruleType (siempre null) o pushes de
+ * prueba manuales ("Probar" en Ajustes, que tampoco llevan ruleType).
  */
 private enum class GridNotificationTone { RESTORED, LOST, OTHER }
 
-private fun gridToneFor(title: String, body: String): GridNotificationTone {
-    val text = "$title $body".lowercase()
+private fun gridToneFor(notification: PushNotificationEntity): GridNotificationTone {
+    when (notification.ruleType) {
+        AlertRuleType.GRID_ONLINE -> return GridNotificationTone.RESTORED
+        AlertRuleType.GRID_OFFLINE -> return GridNotificationTone.LOST
+        AlertRuleType.BATTERY_SOC_LOW, AlertRuleType.BATTERY_SOC_HIGH -> return GridNotificationTone.OTHER
+        null -> Unit
+    }
+
+    val text = "${notification.title} ${notification.body}".lowercase()
     val mentionsGrid = "corriente" in text || "red eléctrica" in text || "electricidad" in text
     if (!mentionsGrid) return GridNotificationTone.OTHER
-    // "vuelto" cubre el mensaje por defecto real ("Ha vuelto la corriente
-    // eléctrica de la calle") — "volvió"/"volvio" (pretérito) no lo
-    // detectaban porque el mensaje usa participio ("ha vuelto"), causando
-    // que solo el rojo (offline) se marcara y el verde nunca apareciera.
     val restoredKeywords = listOf("vuelto", "volvió", "volvio", "restablec", "recuper")
     val lostKeywords = listOf("perdido", "se fue", "corte", "sin corriente", "falló", "fallo")
     return when {
@@ -147,7 +153,7 @@ private fun gridToneFor(title: String, body: String): GridNotificationTone {
 private fun NotificationCard(notification: PushNotificationEntity, onDelete: () -> Unit) {
     val formatter = DateTimeFormatter.ofLocalizedDateTime(FormatStyle.SHORT)
     val colors = LocalFelicityColors.current
-    val tone = gridToneFor(notification.title, notification.body)
+    val tone = gridToneFor(notification)
     val accentColor = when (tone) {
         GridNotificationTone.RESTORED -> colors.green
         GridNotificationTone.LOST -> colors.error

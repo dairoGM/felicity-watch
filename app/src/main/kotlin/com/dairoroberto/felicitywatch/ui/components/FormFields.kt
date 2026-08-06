@@ -19,11 +19,17 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.text.input.KeyboardCapitalization
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.input.VisualTransformation
 
-/** Campo de correo con icono identificador, consistente en Login y Ajustes. */
+/** Campo de correo con icono identificador, consistente en Login y Ajustes.
+ * Capitalización y autocorrección explícitamente desactivadas: en algunos
+ * teclados (confirmado con Samsung/otros fabricantes) el tipo Email
+ * autocapitaliza la primera letra o autocorrige por defecto si no se
+ * especifica, lo que produce un correo distinto al real sin que el usuario
+ * lo note — causa de logins que fallan solo en cierto dispositivo. */
 @Composable
 fun EmailField(
     value: String,
@@ -37,7 +43,11 @@ fun EmailField(
         label = { Text(label) },
         singleLine = true,
         leadingIcon = { Icon(Icons.Default.Email, contentDescription = null) },
-        keyboardOptions = androidx.compose.foundation.text.KeyboardOptions(keyboardType = KeyboardType.Email),
+        keyboardOptions = androidx.compose.foundation.text.KeyboardOptions(
+            keyboardType = KeyboardType.Email,
+            capitalization = KeyboardCapitalization.None,
+            autoCorrectEnabled = false
+        ),
         shape = OutlinedTextFieldDefaults.shape,
         modifier = modifier.fillMaxWidth()
     )
@@ -68,7 +78,11 @@ fun PasswordField(
             }
         },
         visualTransformation = if (visible) VisualTransformation.None else PasswordVisualTransformation(),
-        keyboardOptions = androidx.compose.foundation.text.KeyboardOptions(keyboardType = KeyboardType.Password),
+        keyboardOptions = androidx.compose.foundation.text.KeyboardOptions(
+            keyboardType = KeyboardType.Password,
+            capitalization = KeyboardCapitalization.None,
+            autoCorrectEnabled = false
+        ),
         modifier = modifier.fillMaxWidth()
     )
 }

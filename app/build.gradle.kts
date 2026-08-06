@@ -121,3 +121,11 @@ dependencies {
 kapt {
     correctErrorTypes = true
 }
+
+// Necesario para AppDatabase.exportSchema = true — sin esto Room no genera
+// los JSON de esquema por versión, que son la referencia que usa para
+// validar futuras migraciones (y detectar en compilación si una Migration
+// escrita a mano no calza con el esquema real de la entidad).
+ksp {
+    arg("room.schemaLocation", "$projectDir/schemas")
+}

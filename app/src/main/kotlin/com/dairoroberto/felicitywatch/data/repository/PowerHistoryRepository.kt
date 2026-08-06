@@ -25,6 +25,8 @@ class PowerHistoryRepository @Inject constructor(
         socPercent: Int?,
         loadPowerWatts: Int?,
         batteryPowerWatts: Int?,
+        pvEnergyTodayKwh: Double?,
+        loadEnergyTodayKwh: Double?,
         now: Instant
     ) {
         dao.insert(
@@ -34,7 +36,9 @@ class PowerHistoryRepository @Inject constructor(
                 gridPowerWatts = gridPowerWatts,
                 socPercent = socPercent,
                 loadPowerWatts = loadPowerWatts,
-                batteryPowerWatts = batteryPowerWatts
+                batteryPowerWatts = batteryPowerWatts,
+                pvEnergyTodayKwh = pvEnergyTodayKwh,
+                loadEnergyTodayKwh = loadEnergyTodayKwh
             )
         )
         // Poda liviana: retiene 30 días para que el Reporte con filtro de

@@ -50,9 +50,11 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
+import com.dairoroberto.felicitywatch.ui.components.BarChartEntry
 import com.dairoroberto.felicitywatch.ui.components.ChartPoint
 import com.dairoroberto.felicitywatch.ui.components.ChartSeries
 import com.dairoroberto.felicitywatch.ui.components.ChartZoomState
+import com.dairoroberto.felicitywatch.ui.components.DailyBarChart
 import com.dairoroberto.felicitywatch.ui.components.GridSegment
 import com.dairoroberto.felicitywatch.ui.components.GridTimelineChart
 import com.dairoroberto.felicitywatch.ui.components.LineAreaChart
@@ -69,7 +71,7 @@ import java.time.format.DateTimeFormatter
 import java.time.format.FormatStyle
 import java.util.Locale
 
-private val REPORT_TABS = listOf("PV", "Batería", "FV/Carga/Descarga", "Corriente")
+private val REPORT_TABS = listOf("PV", "Batería", "FV/Carga/Descarga", "Corriente", "Generación", "Consumo")
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -230,12 +232,27 @@ fun ReportScreen(viewModel: ReportViewModel = hiltViewModel()) {
             }
         }
 
-        TabRow(selectedTabIndex = selectedTab, containerColor = colors.surface2) {
+        // ScrollableTabRow (no TabRow fijo) porque con 5 pestañas y nombres
+        // largos como "FV/Carga/Descarga" un ancho fijo comprime el texto y
+        // lo hace saltar de línea — el scroll horizontal evita ese problema
+        // sin tener que acortar los nombres.
+        androidx.compose.material3.ScrollableTabRow(
+            selectedTabIndex = selectedTab,
+            containerColor = colors.surface2,
+            edgePadding = 12.dp
+        ) {
             REPORT_TABS.forEachIndexed { index, title ->
                 Tab(
                     selected = selectedTab == index,
                     onClick = { selectedTab = index },
-                    text = { Text(title, style = MaterialTheme.typography.labelSmall) }
+                    text = {
+                        Text(
+                            title,
+                            style = MaterialTheme.typography.labelSmall,
+                            maxLines = 1,
+                            softWrap = false
+                        )
+                    }
                 )
             }
         }
@@ -251,6 +268,8 @@ fun ReportScreen(viewModel: ReportViewModel = hiltViewModel()) {
                 1 -> BatterySocCard(readings, dateRange, colors)
                 2 -> PvChargeDischargeCard(readings, dateRange, colors)
                 3 -> GridTimelineCard(readings, dateRange, colors, now, liveGridState, lastGridChangeAt)
+                4 -> DailyGenerationReportCard(readings, dateRange, colors)
+                5 -> GridPoweredConsumptionCard(readings, colors)
             }
         }
     }
@@ -636,8 +655,30 @@ private fun GridTimelineCard(
                 // aplicar el debounce, y por eso el número no coincidía con
                 // el del Panel (ej. Panel decía 1h20min, aquí decía 3h20min).
                 val currentlyOnline = liveGridState == com.dairoroberto.felicitywatch.domain.model.GridState.ONLINE
-                val elapsedText = if (lastGridChangeAt != null) {
-                    val elapsedSinceChange = Duration.between(lastGridChangeAt, now)
+
+                // Fallback cuando nunca hubo un cambio de red CONFIRMADO
+                // (lastGridChangeAt queda null para siempre si la corriente
+                // no ha cambiado de estado desde que arrancó el servicio, o
+                // si la app se reinició recientemente) — se busca en el
+                // historial local la lectura más antigua que ya tenga el
+                // mismo estado que ahora, recorriendo hacia atrás desde el
+                // final hasta el primer cambio real de signo.
+                val fallbackChangeAt: Instant? = if (lastGridChangeAt == null && allGridReadings.isNotEmpty()) {
+                    var changeMillis = allGridReadings.last().timestampEpochMillis
+                    for (i in allGridReadings.indices.reversed()) {
+                        val online = (allGridReadings[i].gridPowerWatts ?: 0) >= 1
+                        if (online == currentlyOnline) {
+                            changeMillis = allGridReadings[i].timestampEpochMillis
+                        } else {
+                            break
+                        }
+                    }
+                    Instant.ofEpochMilli(changeMillis)
+                } else null
+                val effectiveChangeAt = lastGridChangeAt ?: fallbackChangeAt
+
+                val elapsedText = if (effectiveChangeAt != null) {
+                    val elapsedSinceChange = Duration.between(effectiveChangeAt, now)
                     val elapsedHours = elapsedSinceChange.toHours()
                     val elapsedMinutes = elapsedSinceChange.toMinutes() % 60
                     if (elapsedHours > 0) "${elapsedHours}h ${elapsedMinutes}min" else "${elapsedMinutes}min"
@@ -841,6 +882,149 @@ private fun GridTimelineCard(
 
 private fun daysBetween(start: LocalDate, end: LocalDate): Long =
     java.time.temporal.ChronoUnit.DAYS.between(start, end)
+
+/**
+ * Reporte de generación fotovoltaica por día — pensado para mostrarle al
+ * cliente: resumen numérico (total, promedio, mejor día) arriba, gráfico de
+ * barras abajo. Cada barra usa el ÚLTIMO valor de pvEnergyTodayKwh leído ese
+ * día (el inversor ya acumula internamente y resetea a medianoche, así que
+ * sumar lecturas del mismo día daría un total inflado).
+ */
+@Composable
+private fun DailyGenerationReportCard(
+    readings: List<com.dairoroberto.felicitywatch.data.local.PowerReadingEntity>,
+    dateRange: DateRange,
+    colors: com.dairoroberto.felicitywatch.ui.theme.FelicitySemanticColors
+) {
+    Card(
+        colors = CardDefaults.cardColors(containerColor = colors.surface2),
+        shape = RoundedCornerShape(16.dp),
+        elevation = CardDefaults.cardElevation(defaultElevation = 1.dp),
+        modifier = Modifier.fillMaxWidth()
+    ) {
+        Column(Modifier.padding(16.dp)) {
+            Text(
+                "GENERACIÓN FOTOVOLTAICA POR DÍA",
+                style = MaterialTheme.typography.labelSmall,
+                color = colors.textLow
+            )
+
+            val zone = ZoneId.systemDefault()
+            val dailyTotals = readings
+                .filter { it.pvEnergyTodayKwh != null }
+                .groupBy { Instant.ofEpochMilli(it.timestampEpochMillis).atZone(zone).toLocalDate() }
+                .mapValues { (_, dayReadings) -> dayReadings.maxBy { it.timestampEpochMillis }.pvEnergyTodayKwh!! }
+                .toSortedMap()
+
+            if (dailyTotals.isEmpty()) {
+                Text(
+                    "No hay suficiente historial registrado en este periodo.\nEl historial se acumula localmente mientras la app monitorea.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = colors.textMid,
+                    modifier = Modifier.padding(top = 24.dp, bottom = 24.dp)
+                )
+            } else {
+                val total = dailyTotals.values.sum()
+                val average = total / dailyTotals.size
+                val bestDay = dailyTotals.maxByOrNull { it.value }
+
+                Row(
+                    modifier = Modifier.fillMaxWidth().padding(top = 14.dp),
+                    horizontalArrangement = Arrangement.spacedBy(10.dp)
+                ) {
+                    GenerationStatTile(
+                        label = "Total del periodo",
+                        value = String.format(Locale("es", "ES"), "%.1f", total),
+                        unit = "kWh",
+                        color = colors.accent,
+                        modifier = Modifier.weight(1f)
+                    )
+                    GenerationStatTile(
+                        label = "Promedio diario",
+                        value = String.format(Locale("es", "ES"), "%.1f", average),
+                        unit = "kWh",
+                        color = colors.textMid,
+                        modifier = Modifier.weight(1f)
+                    )
+                }
+                if (bestDay != null) {
+                    val bestDayFormatter = DateTimeFormatter.ofPattern("d 'de' MMMM").withLocale(Locale("es", "ES"))
+                    Row(
+                        modifier = Modifier.fillMaxWidth().padding(top = 10.dp),
+                        horizontalArrangement = Arrangement.SpaceBetween
+                    ) {
+                        Text(
+                            "Mejor día: ${bestDayFormatter.format(bestDay.key)}",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = colors.textLow
+                        )
+                        Text(
+                            String.format(Locale("es", "ES"), "%.1f kWh", bestDay.value),
+                            style = MaterialTheme.typography.labelSmall,
+                            fontWeight = FontWeight.Bold,
+                            color = colors.green
+                        )
+                    }
+                }
+
+                val dayFormatter = DateTimeFormatter.ofPattern("d MMM").withLocale(Locale("es", "ES"))
+                val entries = dailyTotals.map { (date, kwh) ->
+                    BarChartEntry(label = dayFormatter.format(date), value = kwh.toFloat())
+                }
+                DailyBarChart(
+                    entries = entries,
+                    barColor = colors.accent,
+                    gridColor = colors.hairline,
+                    textColor = colors.textLow,
+                    valueFormatter = { "%.1f kWh".format(it) },
+                    modifier = Modifier.padding(top = 16.dp)
+                )
+
+                // Etiquetas de fecha bajo el gráfico — máximo 6 para no
+                // amontonar texto cuando el rango abarca muchos días.
+                val labelStep = (entries.size / 6).coerceAtLeast(1)
+                Row(
+                    modifier = Modifier.fillMaxWidth().padding(top = 4.dp),
+                    horizontalArrangement = Arrangement.SpaceBetween
+                ) {
+                    entries.forEachIndexed { index, entry ->
+                        if (index % labelStep == 0) {
+                            Text(
+                                entry.label,
+                                style = MaterialTheme.typography.labelSmall,
+                                color = colors.textLow
+                            )
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+internal fun GenerationStatTile(
+    label: String,
+    value: String,
+    unit: String,
+    color: androidx.compose.ui.graphics.Color,
+    modifier: Modifier = Modifier
+) {
+    val colors = LocalFelicityColors.current
+    Card(
+        colors = CardDefaults.cardColors(containerColor = colors.surface2),
+        shape = RoundedCornerShape(12.dp),
+        modifier = modifier
+    ) {
+        Column(Modifier.padding(14.dp)) {
+            Text(label, style = MaterialTheme.typography.labelSmall, color = colors.textMid)
+            Row(modifier = Modifier.padding(top = 4.dp)) {
+                Text(value, style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold, color = color)
+                Text(" $unit", style = MaterialTheme.typography.labelSmall, color = colors.textMid, modifier = Modifier.padding(start = 2.dp))
+            }
+        }
+    }
+}
 
 /**
  * Eje X de horas sincronizado con el zoom/pan de [LineAreaChart]/[MultiLineChart]

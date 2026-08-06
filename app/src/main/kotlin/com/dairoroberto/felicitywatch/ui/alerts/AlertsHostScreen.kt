@@ -18,10 +18,13 @@ import com.dairoroberto.felicitywatch.ui.history.HistoryScreen
 import com.dairoroberto.felicitywatch.ui.notifications.NotificationsScreen
 import com.dairoroberto.felicitywatch.ui.theme.LocalFelicityColors
 
+/** Solo historial de alertas (Eventos disparados + notificaciones Push
+ * recibidas) — las Reglas de alerta (umbrales/canales) viven en Ajustes >
+ * Alertas, no aquí, para que toda la CONFIGURACIÓN quede en un solo lugar. */
 @Composable
 fun AlertsHostScreen() {
     var selectedTabIndex by rememberSaveable { mutableIntStateOf(0) }
-    val tabs = listOf("Reglas", "Eventos", "Push")
+    val tabs = listOf("Eventos", "Push")
     val colors = LocalFelicityColors.current
 
     Column(modifier = Modifier.fillMaxSize()) {
@@ -56,9 +59,8 @@ fun AlertsHostScreen() {
         }
 
         when (selectedTabIndex) {
-            0 -> AlertsScreen()
-            1 -> HistoryScreen()
-            2 -> NotificationsScreen()
+            0 -> HistoryScreen()
+            1 -> NotificationsScreen()
         }
     }
 }

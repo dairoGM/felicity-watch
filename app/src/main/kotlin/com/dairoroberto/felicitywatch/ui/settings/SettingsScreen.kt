@@ -1,20 +1,28 @@
 package com.dairoroberto.felicitywatch.ui.settings
 
+import android.Manifest
 import android.content.Context
 import android.content.Intent
+import android.content.pm.PackageManager
 import android.net.Uri
+import android.os.Build
 import android.os.PowerManager
 import android.provider.Settings
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
+import androidx.core.content.ContextCompat
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyListScope
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Chat
@@ -43,12 +51,15 @@ import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Switch
+import androidx.compose.material3.Tab
+import androidx.compose.material3.TabRow
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
@@ -58,6 +69,8 @@ import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
+import com.dairoroberto.felicitywatch.ui.alerts.AlertsViewModel
+import com.dairoroberto.felicitywatch.ui.alerts.alertRuleItems
 import com.dairoroberto.felicitywatch.ui.components.ApiKeyField
 import com.dairoroberto.felicitywatch.ui.components.ElegantSnackbar
 import com.dairoroberto.felicitywatch.ui.components.EmailField
@@ -72,6 +85,7 @@ import java.util.Locale
 /** Alto uniforme para todos los botones de acción de esta pantalla. */
 private val ACTION_BUTTON_HEIGHT = 48.dp
 private val SECTION_CONTENT_SPACING = 12.dp
+private val SETTINGS_TABS = listOf("Cuenta", "Alertas", "Sistema", "Diagnóstico")
 
 private fun buildTimestampLabel(): String {
     val formatter = SimpleDateFormat("yyyy-MM-dd HH:mm", Locale("es", "ES"))
@@ -93,9 +107,13 @@ fun SettingsScreen(
     val pollingIntervalSeconds by viewModel.pollingIntervalSeconds.collectAsState()
     val lastInverterRawJson by viewModel.lastInverterRawJson.collectAsState()
     val lastBatteryRawJson by viewModel.lastBatteryRawJson.collectAsState()
+    val isLoadingDeviceList by viewModel.isLoadingDeviceList.collectAsState()
+    val alertsViewModel: AlertsViewModel = hiltViewModel()
+    val alertRules by alertsViewModel.rules.collectAsState()
     var batteryExcluded by remember { mutableStateOf(isIgnoringBatteryOptimizations(context)) }
     var showLogoutConfirm by remember { mutableStateOf(false) }
     var showFactoryResetConfirm by remember { mutableStateOf(false) }
+    var selectedTab by remember { mutableIntStateOf(0) }
 
     val snackbarHostState = remember { SnackbarHostState() }
     val coroutineScope = rememberCoroutineScope()
@@ -103,6 +121,26 @@ fun SettingsScreen(
     LaunchedEffect(Unit) {
         viewModel.messages.collect { message ->
             coroutineScope.launch { snackbarHostState.showSnackbar(message) }
+        }
+    }
+
+    // Pide el permiso POST_NOTIFICATIONS (Android 13+) con el modal nativo del
+    // sistema antes de disparar la prueba del canal push, en vez de fallar en
+    // silencio y obligar al usuario a ir manualmente a Ajustes del sistema —
+    // así lo hacen la mayoría de apps al pedir permisos por primera vez.
+    val notificationPermissionLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.RequestPermission()
+    ) { granted ->
+        if (granted) viewModel.testPushChannel()
+    }
+    val requestPushPermissionThenTest: () -> Unit = {
+        val alreadyGranted = Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU ||
+            ContextCompat.checkSelfPermission(context, Manifest.permission.POST_NOTIFICATIONS) ==
+                PackageManager.PERMISSION_GRANTED
+        if (alreadyGranted) {
+            viewModel.testPushChannel()
+        } else {
+            notificationPermissionLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
         }
     }
 
@@ -139,226 +177,326 @@ fun SettingsScreen(
     Scaffold(
         snackbarHost = { SnackbarHost(snackbarHostState) { ElegantSnackbar(it) } }
     ) { scaffoldPadding ->
-        LazyColumn(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(scaffoldPadding)
-                .imePadding(),
-            contentPadding = PaddingValues(16.dp),
-            verticalArrangement = Arrangement.spacedBy(14.dp)
-        ) {
-            item {
-                SectionCard(title = "Cuenta FSolar") {
-                    EmailField(value = formState.fsolarUsername, onValueChange = viewModel::onUsernameChange)
-                    PasswordField(
-                        value = formState.fsolarPassword,
-                        onValueChange = viewModel::onPasswordChange,
-                        modifier = Modifier.padding(top = SECTION_CONTENT_SPACING)
-                    )
-                    ActionButton(
-                        text = "Guardar credenciales",
-                        onClick = { viewModel.saveFsolarCredentials() },
-                        modifier = Modifier.padding(top = SECTION_CONTENT_SPACING)
+        Column(Modifier.fillMaxSize().padding(scaffoldPadding)) {
+            val colors = LocalFelicityColors.current
+            TabRow(selectedTabIndex = selectedTab, containerColor = colors.surface2) {
+                SETTINGS_TABS.forEachIndexed { index, title ->
+                    Tab(
+                        selected = selectedTab == index,
+                        onClick = { selectedTab = index },
+                        text = { Text(title, style = MaterialTheme.typography.labelSmall) }
                     )
                 }
             }
 
-            item {
-                SectionCard(title = "WhatsApp (CallMeBot)") {
-                    PhoneField(value = formState.whatsappPhone, onValueChange = viewModel::onWhatsappPhoneChange)
-                    ApiKeyField(
-                        value = formState.callMeBotApiKey,
-                        onValueChange = viewModel::onApiKeyChange,
-                        label = "API key de CallMeBot",
-                        modifier = Modifier.padding(top = SECTION_CONTENT_SPACING)
+            LazyColumn(
+                modifier = Modifier.fillMaxWidth().imePadding(),
+                contentPadding = PaddingValues(16.dp),
+                verticalArrangement = Arrangement.spacedBy(14.dp)
+            ) {
+                when (selectedTab) {
+                    0 -> accountTab(
+                        formState = formState,
+                        viewModel = viewModel,
+                        onShowLogoutConfirm = { showLogoutConfirm = true }
                     )
-                    ActionButton(
-                        text = "Guardar WhatsApp",
-                        onClick = { viewModel.saveWhatsappConfig() },
-                        modifier = Modifier.padding(top = SECTION_CONTENT_SPACING)
+                    1 -> alertsTab(
+                        isTestingConnection = isTestingConnection,
+                        viewModel = viewModel,
+                        alertsViewModel = alertsViewModel,
+                        alertRules = alertRules,
+                        onTestPushChannel = requestPushPermissionThenTest
                     )
-                }
-            }
-
-            item {
-                SectionCard(title = "Conexión con Felicity") {
-                    Text(
-                        "Verifica el acceso a tu cuenta FSolar y trae la primera lectura de PV y batería para el Panel.",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = LocalFelicityColors.current.textMid
-                    )
-                    ActionButton(
-                        text = if (isTestingConnection) "Probando…" else "Probar conexión / primera lectura",
-                        icon = if (isTestingConnection) null else Icons.Default.CloudSync,
-                        loading = isTestingConnection,
-                        onClick = { viewModel.testConnection() },
-                        enabled = !isTestingConnection,
-                        modifier = Modifier.padding(top = SECTION_CONTENT_SPACING)
-                    )
-                }
-            }
-
-            item {
-                SectionCard(title = "Canales de aviso") {
-                    Text(
-                        "Verifica que cada canal funcione antes de confiar en él.",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = LocalFelicityColors.current.textMid
-                    )
-                    ChannelTestRow(
-                        icon = Icons.Default.RecordVoiceOver,
-                        label = "Voz del teléfono",
-                        onTest = { viewModel.testVoiceChannel() }
-                    )
-                    ChannelTestRow(
-                        icon = Icons.Default.Notifications,
-                        label = "Notificación push",
-                        onTest = { viewModel.testPushChannel() }
-                    )
-                    ChannelTestRow(
-                        icon = Icons.Default.Chat,
-                        label = "WhatsApp",
-                        onTest = { viewModel.testWhatsappChannel() }
-                    )
-                }
-            }
-
-            item {
-                SectionCard(title = "Optimización de batería") {
-                    Text(
-                        if (batteryExcluded) "Excluida — el sistema no debería matar el servicio."
-                        else "No excluida — MIUI y fabricantes similares pueden matar el servicio.",
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = if (batteryExcluded) LocalFelicityColors.current.green else LocalFelicityColors.current.textMid
-                    )
-                    ActionButton(
-                        text = "Solicitar exclusión",
-                        onClick = {
+                    2 -> systemTab(
+                        pollingIntervalSeconds = pollingIntervalSeconds,
+                        serviceRunning = serviceRunning,
+                        darkModeEnabled = darkModeEnabled,
+                        onToggleDarkMode = onToggleDarkMode,
+                        batteryExcluded = batteryExcluded,
+                        onRequestBatteryExclusion = {
                             requestIgnoreBatteryOptimizations(context)
                             batteryExcluded = isIgnoringBatteryOptimizations(context)
                         },
-                        modifier = Modifier.padding(top = SECTION_CONTENT_SPACING)
+                        viewModel = viewModel
+                    )
+                    3 -> diagnosticsTab(
+                        lastInverterRawJson = lastInverterRawJson,
+                        lastBatteryRawJson = lastBatteryRawJson,
+                        isLoadingDeviceList = isLoadingDeviceList,
+                        viewModel = viewModel,
+                        onShowFactoryResetConfirm = { showFactoryResetConfirm = true }
                     )
                 }
             }
+        }
+    }
+}
 
-            item {
-                SectionCard(title = "Frecuencia de consulta") {
-                    Text(
-                        "Cada cuánto se consulta a Felicity para saber si se fue/llegó la corriente o cambió la generación PV. Un intervalo más corto detecta cambios más rápido pero consume más batería y datos.",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = LocalFelicityColors.current.textMid
+private fun LazyListScope.accountTab(
+    formState: SettingsUiState,
+    viewModel: SettingsViewModel,
+    onShowLogoutConfirm: () -> Unit
+) {
+    item {
+        SectionCard(title = "Cuenta FSolar") {
+            EmailField(value = formState.fsolarUsername, onValueChange = viewModel::onUsernameChange)
+            PasswordField(
+                value = formState.fsolarPassword,
+                onValueChange = viewModel::onPasswordChange,
+                modifier = Modifier.padding(top = SECTION_CONTENT_SPACING)
+            )
+            ActionButton(
+                text = "Guardar credenciales",
+                onClick = { viewModel.saveFsolarCredentials() },
+                modifier = Modifier.padding(top = SECTION_CONTENT_SPACING)
+            )
+        }
+    }
+
+    item {
+        SectionCard(title = "WhatsApp (CallMeBot)") {
+            PhoneField(value = formState.whatsappPhone, onValueChange = viewModel::onWhatsappPhoneChange)
+            ApiKeyField(
+                value = formState.callMeBotApiKey,
+                onValueChange = viewModel::onApiKeyChange,
+                label = "API key de CallMeBot",
+                modifier = Modifier.padding(top = SECTION_CONTENT_SPACING)
+            )
+            ActionButton(
+                text = "Guardar WhatsApp",
+                onClick = { viewModel.saveWhatsappConfig() },
+                modifier = Modifier.padding(top = SECTION_CONTENT_SPACING)
+            )
+        }
+    }
+
+    item {
+        SectionCard(title = "Zona de riesgo") {
+            ActionButton(
+                text = "Cerrar sesión",
+                icon = Icons.Default.Logout,
+                outlined = true,
+                onClick = onShowLogoutConfirm
+            )
+        }
+    }
+}
+
+private fun LazyListScope.alertsTab(
+    isTestingConnection: Boolean,
+    viewModel: SettingsViewModel,
+    alertsViewModel: AlertsViewModel,
+    alertRules: List<com.dairoroberto.felicitywatch.data.local.AlertRuleEntity>,
+    onTestPushChannel: () -> Unit
+) {
+    item {
+        Text(
+            "REGLAS DE ALERTA",
+            style = MaterialTheme.typography.labelSmall,
+            color = LocalFelicityColors.current.textLow,
+            modifier = Modifier.padding(start = 2.dp)
+        )
+    }
+
+    alertRuleItems(alertRules, alertsViewModel)
+
+    item {
+        SectionCard(title = "Conexión con Felicity") {
+            Text(
+                "Verifica el acceso a tu cuenta FSolar y trae la primera lectura de PV y batería para el Panel.",
+                style = MaterialTheme.typography.bodySmall,
+                color = LocalFelicityColors.current.textMid
+            )
+            ActionButton(
+                text = if (isTestingConnection) "Probando…" else "Probar conexión / primera lectura",
+                icon = if (isTestingConnection) null else Icons.Default.CloudSync,
+                loading = isTestingConnection,
+                onClick = { viewModel.testConnection() },
+                enabled = !isTestingConnection,
+                modifier = Modifier.padding(top = SECTION_CONTENT_SPACING)
+            )
+        }
+    }
+
+    item {
+        SectionCard(title = "Canales de aviso") {
+            Text(
+                "Verifica que cada canal funcione antes de confiar en él.",
+                style = MaterialTheme.typography.bodySmall,
+                color = LocalFelicityColors.current.textMid
+            )
+            ChannelTestRow(
+                icon = Icons.Default.RecordVoiceOver,
+                label = "Voz del teléfono",
+                onTest = { viewModel.testVoiceChannel() }
+            )
+            ChannelTestRow(
+                icon = Icons.Default.Notifications,
+                label = "Notificación push",
+                onTest = onTestPushChannel
+            )
+            ChannelTestRow(
+                icon = Icons.Default.Chat,
+                label = "WhatsApp",
+                onTest = { viewModel.testWhatsappChannel() }
+            )
+        }
+    }
+}
+
+private fun LazyListScope.systemTab(
+    pollingIntervalSeconds: Int,
+    serviceRunning: Boolean,
+    darkModeEnabled: Boolean,
+    onToggleDarkMode: (Boolean) -> Unit,
+    batteryExcluded: Boolean,
+    onRequestBatteryExclusion: () -> Unit,
+    viewModel: SettingsViewModel
+) {
+    item {
+        SectionCard(title = "Frecuencia de consulta") {
+            Text(
+                "Cada cuánto se consulta a Felicity para saber si se fue/llegó la corriente o cambió la generación PV. Un intervalo más corto detecta cambios más rápido pero consume más batería y datos.",
+                style = MaterialTheme.typography.bodySmall,
+                color = LocalFelicityColors.current.textMid
+            )
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(top = SECTION_CONTENT_SPACING),
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                listOf(5, 10, 15, 30, 60).forEach { seconds ->
+                    val label = if (seconds < 60) "${seconds}s" else "${seconds / 60}min"
+                    FilterChip(
+                        selected = pollingIntervalSeconds == seconds,
+                        onClick = { viewModel.setPollingIntervalSeconds(seconds) },
+                        label = { Text(label) },
+                        colors = FilterChipDefaults.filterChipColors(
+                            selectedContainerColor = LocalFelicityColors.current.tealDim
+                        )
                     )
-                    Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(top = SECTION_CONTENT_SPACING),
-                        horizontalArrangement = Arrangement.spacedBy(8.dp)
-                    ) {
-                        listOf(15, 30, 60, 120, 300).forEach { seconds ->
-                            val label = if (seconds < 60) "${seconds}s" else "${seconds / 60}min"
-                            FilterChip(
-                                selected = pollingIntervalSeconds == seconds,
-                                onClick = { viewModel.setPollingIntervalSeconds(seconds) },
-                                label = { Text(label) },
-                                colors = FilterChipDefaults.filterChipColors(
-                                    selectedContainerColor = LocalFelicityColors.current.tealDim
-                                )
-                            )
-                        }
-                    }
                 }
             }
+        }
+    }
 
-            item {
-                SectionCard(title = "Servicio de vigilancia") {
+    item {
+        SectionCard(title = "Servicio de vigilancia") {
+            Text(
+                if (serviceRunning) "Activo" else "Detenido",
+                style = MaterialTheme.typography.bodyMedium,
+                color = if (serviceRunning) LocalFelicityColors.current.green else LocalFelicityColors.current.textMid
+            )
+            ActionButton(
+                text = "Reiniciar servicio",
+                onClick = { viewModel.restartService() },
+                modifier = Modifier.padding(top = SECTION_CONTENT_SPACING)
+            )
+        }
+    }
+
+    item {
+        SectionCard(title = "Optimización de batería") {
+            Text(
+                if (batteryExcluded) "Excluida — el sistema no debería matar el servicio."
+                else "No excluida — MIUI y fabricantes similares pueden matar el servicio.",
+                style = MaterialTheme.typography.bodyMedium,
+                color = if (batteryExcluded) LocalFelicityColors.current.green else LocalFelicityColors.current.textMid
+            )
+            ActionButton(
+                text = "Solicitar exclusión",
+                onClick = onRequestBatteryExclusion,
+                modifier = Modifier.padding(top = SECTION_CONTENT_SPACING)
+            )
+        }
+    }
+
+    item {
+        SectionCard(title = "Apariencia") {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween
+            ) {
+                Row(verticalAlignment = androidx.compose.ui.Alignment.CenterVertically) {
+                    Icon(Icons.Default.DarkMode, contentDescription = null)
                     Text(
-                        if (serviceRunning) "Activo" else "Detenido",
+                        "Modo oscuro",
                         style = MaterialTheme.typography.bodyMedium,
-                        color = if (serviceRunning) LocalFelicityColors.current.green else LocalFelicityColors.current.textMid
-                    )
-                    ActionButton(
-                        text = "Reiniciar servicio",
-                        onClick = { viewModel.restartService() },
-                        modifier = Modifier.padding(top = SECTION_CONTENT_SPACING)
+                        modifier = Modifier.padding(start = 8.dp)
                     )
                 }
+                Switch(checked = darkModeEnabled, onCheckedChange = onToggleDarkMode)
             }
+        }
+    }
+}
 
-            item {
-                SectionCard(title = "Apariencia") {
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.SpaceBetween
-                    ) {
-                        Row(verticalAlignment = androidx.compose.ui.Alignment.CenterVertically) {
-                            Icon(Icons.Default.DarkMode, contentDescription = null)
-                            Text(
-                                "Modo oscuro",
-                                style = MaterialTheme.typography.bodyMedium,
-                                modifier = Modifier.padding(start = 8.dp)
-                            )
-                        }
-                        Switch(checked = darkModeEnabled, onCheckedChange = onToggleDarkMode)
-                    }
-                }
-            }
+private fun LazyListScope.diagnosticsTab(
+    lastInverterRawJson: String?,
+    lastBatteryRawJson: String?,
+    isLoadingDeviceList: Boolean,
+    viewModel: SettingsViewModel,
+    onShowFactoryResetConfirm: () -> Unit
+) {
+    item {
+        SectionCard(title = "Diagnóstico") {
+            Text(
+                "Copia la última respuesta cruda que Felicity envió para cada equipo — útil para reportar un problema sin conectar el teléfono por USB.",
+                style = MaterialTheme.typography.bodySmall,
+                color = LocalFelicityColors.current.textMid
+            )
+            ActionButton(
+                text = "Copiar respuesta del inversor",
+                outlined = true,
+                onClick = { viewModel.copyRawJsonToClipboard("inversor", lastInverterRawJson) },
+                modifier = Modifier.padding(top = SECTION_CONTENT_SPACING)
+            )
+            ActionButton(
+                text = "Copiar respuesta de la batería",
+                outlined = true,
+                onClick = { viewModel.copyRawJsonToClipboard("batería", lastBatteryRawJson) },
+                modifier = Modifier.padding(top = SECTION_CONTENT_SPACING)
+            )
+            ActionButton(
+                text = if (isLoadingDeviceList) "Consultando…" else "Consultar dispositivos (planta)",
+                outlined = true,
+                onClick = { viewModel.refreshDeviceListForDiagnostics() },
+                modifier = Modifier.padding(top = SECTION_CONTENT_SPACING)
+            )
+            ActionButton(
+                text = "Copiar respuesta de dispositivos",
+                outlined = true,
+                onClick = { viewModel.copyDeviceListJsonToClipboard() },
+                modifier = Modifier.padding(top = SECTION_CONTENT_SPACING)
+            )
+        }
+    }
 
-            item {
-                SectionCard(title = "Diagnóstico") {
-                    Text(
-                        "Copia la última respuesta cruda que Felicity envió para cada equipo — útil para reportar un problema sin conectar el teléfono por USB.",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = LocalFelicityColors.current.textMid
-                    )
-                    ActionButton(
-                        text = "Copiar respuesta del inversor",
-                        outlined = true,
-                        onClick = { viewModel.copyRawJsonToClipboard("inversor", lastInverterRawJson) },
-                        modifier = Modifier.padding(top = SECTION_CONTENT_SPACING)
-                    )
-                    ActionButton(
-                        text = "Copiar respuesta de la batería",
-                        outlined = true,
-                        onClick = { viewModel.copyRawJsonToClipboard("batería", lastBatteryRawJson) },
-                        modifier = Modifier.padding(top = SECTION_CONTENT_SPACING)
-                    )
-                }
-            }
+    item {
+        SectionCard(title = "Acerca de") {
+            Text(
+                "Felicity Watch ${com.dairoroberto.felicitywatch.BuildConfig.VERSION_NAME} (build ${com.dairoroberto.felicitywatch.BuildConfig.VERSION_CODE})",
+                style = MaterialTheme.typography.bodyMedium
+            )
+            Text(
+                "Compilado: ${buildTimestampLabel()}",
+                style = MaterialTheme.typography.labelSmall,
+                color = LocalFelicityColors.current.textMid,
+                modifier = Modifier.padding(top = 2.dp)
+            )
+        }
+    }
 
-            item {
-                SectionCard(title = "Acerca de") {
-                    Text(
-                        "Felicity Watch ${com.dairoroberto.felicitywatch.BuildConfig.VERSION_NAME} (build ${com.dairoroberto.felicitywatch.BuildConfig.VERSION_CODE})",
-                        style = MaterialTheme.typography.bodyMedium
-                    )
-                    Text(
-                        "Compilado: ${buildTimestampLabel()}",
-                        style = MaterialTheme.typography.labelSmall,
-                        color = LocalFelicityColors.current.textMid,
-                        modifier = Modifier.padding(top = 2.dp)
-                    )
-                }
-            }
-
-            item {
-                SectionCard(title = "Zona de riesgo") {
-                    ActionButton(
-                        text = "Cerrar sesión",
-                        icon = Icons.Default.Logout,
-                        outlined = true,
-                        onClick = { showLogoutConfirm = true }
-                    )
-                    ActionButton(
-                        text = "Restablecer valores de fábrica",
-                        icon = Icons.Default.DeleteForever,
-                        outlined = true,
-                        contentColor = MaterialTheme.colorScheme.error,
-                        onClick = { showFactoryResetConfirm = true },
-                        modifier = Modifier.padding(top = SECTION_CONTENT_SPACING)
-                    )
-                }
-            }
+    item {
+        SectionCard(title = "Zona de riesgo") {
+            ActionButton(
+                text = "Restablecer valores de fábrica",
+                icon = Icons.Default.DeleteForever,
+                outlined = true,
+                contentColor = MaterialTheme.colorScheme.error,
+                onClick = onShowFactoryResetConfirm
+            )
         }
     }
 }

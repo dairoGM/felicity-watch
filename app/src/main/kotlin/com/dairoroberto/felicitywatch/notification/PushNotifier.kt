@@ -13,6 +13,7 @@ import javax.inject.Singleton
 
 import com.dairoroberto.felicitywatch.data.repository.PushNotificationRepository
 import com.dairoroberto.felicitywatch.data.local.PushNotificationEntity
+import com.dairoroberto.felicitywatch.domain.model.AlertRuleType
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -26,7 +27,7 @@ class PushNotifier @Inject constructor(
     @ApplicationContext private val context: Context,
     private val repository: PushNotificationRepository
 ) {
-    fun notifyAlert(title: String, body: String, notificationId: Int): Boolean {
+    fun notifyAlert(title: String, body: String, notificationId: Int, ruleType: AlertRuleType? = null): Boolean {
         val hasPermission = ContextCompat.checkSelfPermission(
             context,
             Manifest.permission.POST_NOTIFICATIONS
@@ -46,7 +47,7 @@ class PushNotifier @Inject constructor(
         val success = sendNotification(notificationId, notification)
         if (success) {
             CoroutineScope(Dispatchers.IO).launch {
-                repository.insert(PushNotificationEntity(title = title, body = body))
+                repository.insert(PushNotificationEntity(title = title, body = body, ruleType = ruleType))
             }
         }
         return success

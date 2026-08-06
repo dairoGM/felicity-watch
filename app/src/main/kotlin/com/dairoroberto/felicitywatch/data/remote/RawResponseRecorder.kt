@@ -27,6 +27,13 @@ class RawResponseRecorder {
     var lastSnapshotRequestBody: String? = null
         private set
 
+    /** Respuesta cruda de list_device_all_type — diagnóstico para conocer
+     * los nombres de campo reales de "planta" (capacidad, tipo, propietario,
+     * fecha de instalación) que el DTO actual no expone. */
+    @Volatile
+    var lastDeviceListBody: String? = null
+        private set
+
     fun recordSnapshot(body: String) {
         lastSnapshotBody = body
     }
@@ -38,6 +45,10 @@ class RawResponseRecorder {
     fun recordSnapshotRequest(body: String) {
         lastSnapshotRequestBody = body
     }
+
+    fun recordDeviceList(body: String) {
+        lastDeviceListBody = body
+    }
 }
 
 class RawResponseInterceptor(private val recorder: RawResponseRecorder) : Interceptor {
@@ -48,7 +59,8 @@ class RawResponseInterceptor(private val recorder: RawResponseRecorder) : Interc
         val path = request.url.encodedPath
         val isSnapshot = path.endsWith("get_device_snapshot")
         val isLogin = path.endsWith("sec/login") || path.endsWith("userlogin")
-        if (!isSnapshot && !isLogin) return response
+        val isDeviceList = path.endsWith("list_device_all_type")
+        if (!isSnapshot && !isLogin && !isDeviceList) return response
 
         if (isSnapshot) {
             val requestBody = request.body
@@ -66,7 +78,11 @@ class RawResponseInterceptor(private val recorder: RawResponseRecorder) : Interc
         source.request(Long.MAX_VALUE)
         val bodyString = source.buffer.clone().readString(body.contentType()?.charset(Charsets.UTF_8) ?: Charsets.UTF_8)
 
-        if (isSnapshot) recorder.recordSnapshot(bodyString) else recorder.recordLogin(bodyString)
+        when {
+            isSnapshot -> recorder.recordSnapshot(bodyString)
+            isDeviceList -> recorder.recordDeviceList(bodyString)
+            else -> recorder.recordLogin(bodyString)
+        }
 
         return response
     }

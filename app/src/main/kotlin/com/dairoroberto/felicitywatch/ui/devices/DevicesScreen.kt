@@ -27,17 +27,21 @@ import androidx.compose.material.icons.filled.DeviceUnknown
 import androidx.compose.material.icons.filled.ElectricBolt
 import androidx.compose.material.icons.filled.ExpandLess
 import androidx.compose.material.icons.filled.ExpandMore
+import androidx.compose.material.icons.filled.SolarPower
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Tab
+import androidx.compose.material3.TabRow
 import androidx.compose.material3.Text
 import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
@@ -51,14 +55,18 @@ import com.dairoroberto.felicitywatch.domain.model.BatteryReading
 import com.dairoroberto.felicitywatch.domain.model.DeviceInfo
 import com.dairoroberto.felicitywatch.domain.model.DeviceRole
 import com.dairoroberto.felicitywatch.domain.model.InverterReading
+import com.dairoroberto.felicitywatch.domain.model.PlantInfo
 import com.dairoroberto.felicitywatch.ui.theme.LocalFelicityColors
 import java.util.Locale
+
+private val DEVICES_TABS = listOf("Planta", "Dispositivos")
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun DevicesScreen(viewModel: DevicesViewModel = hiltViewModel()) {
     val state by viewModel.uiState.collectAsState()
     val colors = LocalFelicityColors.current
+    var selectedTab by remember { mutableIntStateOf(0) }
 
     PullToRefreshBox(
         isRefreshing = state.loading,
@@ -85,12 +93,29 @@ fun DevicesScreen(viewModel: DevicesViewModel = hiltViewModel()) {
                 )
             }
         } else {
-            LazyColumn(
-                contentPadding = PaddingValues(16.dp),
-                verticalArrangement = Arrangement.spacedBy(12.dp)
-            ) {
-                items(state.devices, key = { it.serialNumber }) { device ->
-                    DeviceCard(device, state.inverterReading, state.batteryReading)
+            Column(Modifier.fillMaxSize()) {
+                TabRow(selectedTabIndex = selectedTab, containerColor = colors.surface2) {
+                    DEVICES_TABS.forEachIndexed { index, title ->
+                        Tab(
+                            selected = selectedTab == index,
+                            onClick = { selectedTab = index },
+                            text = { Text(title, style = MaterialTheme.typography.labelSmall) }
+                        )
+                    }
+                }
+
+                LazyColumn(
+                    contentPadding = PaddingValues(16.dp),
+                    verticalArrangement = Arrangement.spacedBy(12.dp)
+                ) {
+                    when (selectedTab) {
+                        0 -> items(state.plants, key = { it.plantId }) { plant ->
+                            PlantDetailCard(plant, state.inverterReading)
+                        }
+                        1 -> items(state.devices, key = { it.serialNumber }) { device ->
+                            DeviceRow(device, state.inverterReading, state.batteryReading)
+                        }
+                    }
                 }
             }
         }
@@ -100,8 +125,79 @@ fun DevicesScreen(viewModel: DevicesViewModel = hiltViewModel()) {
 private fun formatWatts(watts: Int): String =
     if (watts >= 1000) String.format(Locale("es", "ES"), "%.2f kW", watts / 1000.0) else "$watts W"
 
+/**
+ * Detalle de la planta, siempre visible (no requiere expandir — la
+ * pestaña "Planta" ya ES el detalle). Tipo de planta y fecha de instalación
+ * NO se muestran: no vienen en el endpoint de listado de dispositivos
+ * (list_device_all_type) que consume esta app, solo en la tabla web de
+ * Felicity, cuyo endpoint de detalle de planta no está identificado/
+ * verificado todavía — decisión explícita de no mostrar filas vacías en
+ * "—" para datos que no existen en ningún endpoint confirmado.
+ */
 @Composable
-private fun DeviceCard(device: DeviceInfo, inverterReading: InverterReading?, batteryReading: BatteryReading?) {
+private fun PlantDetailCard(plant: PlantInfo, inverterReading: InverterReading?) {
+    val colors = LocalFelicityColors.current
+    val online = plant.devices.any { it.status != null }
+    val pvPower = inverterReading?.pvPowerWatts
+
+    Card(
+        colors = CardDefaults.cardColors(containerColor = colors.surface2),
+        shape = RoundedCornerShape(14.dp),
+        elevation = CardDefaults.cardElevation(defaultElevation = 1.dp)
+    ) {
+        Column(Modifier.padding(16.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
+                Box(
+                    Modifier
+                        .size(8.dp)
+                        .clip(CircleShape)
+                        .background(if (online) colors.green else colors.textLow)
+                )
+                Box(
+                    Modifier
+                        .padding(start = 10.dp)
+                        .size(36.dp)
+                        .clip(RoundedCornerShape(9.dp))
+                        .background(colors.tealDim),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Icon(Icons.Default.SolarPower, contentDescription = "Planta", tint = colors.accent, modifier = Modifier.size(20.dp))
+                }
+                Column(Modifier.padding(start = 10.dp).weight(1f)) {
+                    Text(plant.plantName, style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold)
+                    Text(
+                        "${plant.devices.size} equipos" + (plant.countryName?.let { " · $it" } ?: ""),
+                        style = MaterialTheme.typography.labelSmall,
+                        color = colors.textMid
+                    )
+                }
+                Text(
+                    pvPower?.let { formatWatts(it) } ?: "—",
+                    style = MaterialTheme.typography.bodyMedium,
+                    fontWeight = FontWeight.Medium,
+                    color = colors.accent
+                )
+            }
+
+            HorizontalDivider(modifier = Modifier.padding(vertical = 14.dp), color = colors.hairline)
+
+            DeviceDetailRow(label = "Propietario", value = plant.ownerName ?: "—")
+            DeviceDetailRow(label = "País", value = plant.countryName ?: "—")
+            DeviceDetailRow(
+                label = "Potencia FV (en vivo)",
+                value = pvPower?.let { formatWatts(it) } ?: "—",
+                valueColor = colors.accent
+            )
+            DeviceDetailRow(
+                label = "Capacidad instalada",
+                value = plant.ratedPowerKw?.let { "${it.toInt()} kW" } ?: "—"
+            )
+        }
+    }
+}
+
+@Composable
+private fun DeviceRow(device: DeviceInfo, inverterReading: InverterReading?, batteryReading: BatteryReading?) {
     val colors = LocalFelicityColors.current
     val (icon, roleLabel) = when (device.role) {
         DeviceRole.INVERTER -> Icons.Default.ElectricBolt to "Inversor"
@@ -116,12 +212,9 @@ private fun DeviceCard(device: DeviceInfo, inverterReading: InverterReading?, ba
         colors = CardDefaults.cardColors(containerColor = colors.surface2),
         shape = RoundedCornerShape(14.dp),
         elevation = CardDefaults.cardElevation(defaultElevation = 1.dp),
-        modifier = if (expandable) Modifier.clickable { expanded = !expanded } else Modifier
+        modifier = if (expandable) Modifier.fillMaxWidth().clickable { expanded = !expanded } else Modifier.fillMaxWidth()
     ) {
         Column(Modifier.padding(16.dp)) {
-            // Cabecera: punto de estado + tipo + N/S, como en la app oficial
-            // de Felicity — el punto verde ES el indicador de estado, sin
-            // texto adicional que lo repita.
             Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
                 Box(
                     Modifier

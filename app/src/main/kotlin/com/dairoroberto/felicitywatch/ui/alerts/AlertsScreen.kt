@@ -10,6 +10,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyListScope
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
@@ -53,18 +54,26 @@ fun AlertsScreen(viewModel: AlertsViewModel = hiltViewModel()) {
         contentPadding = PaddingValues(16.dp),
         verticalArrangement = Arrangement.spacedBy(14.dp)
     ) {
-        items(rules, key = { it.id }) { rule ->
-            AlertRuleCard(
-                rule = rule,
-                onToggleEnabled = { viewModel.toggleEnabled(rule) },
-                onThresholdChange = { viewModel.updateThreshold(rule, it) },
-                onDebounceChange = { viewModel.updateDebounceSeconds(rule, it) },
-                onMessageChange = { viewModel.updateMessage(rule, it) },
-                onToggleVoice = { viewModel.toggleVoiceChannel(rule) },
-                onTogglePush = { viewModel.togglePushChannel(rule) },
-                onToggleWhatsapp = { viewModel.toggleWhatsappChannel(rule) }
-            )
-        }
+        alertRuleItems(rules, viewModel)
+    }
+}
+
+/** Extraído como items de LazyListScope (no una pantalla propia con su
+ * propio LazyColumn) para poder incrustarlo dentro de otra lista que ya
+ * tiene scroll — ej. la pestaña "Alertas" de Ajustes — sin anidar dos
+ * LazyColumn (Compose no soporta scroll anidado del mismo eje). */
+fun LazyListScope.alertRuleItems(rules: List<AlertRuleEntity>, viewModel: AlertsViewModel) {
+    items(rules, key = { it.id }) { rule ->
+        AlertRuleCard(
+            rule = rule,
+            onToggleEnabled = { viewModel.toggleEnabled(rule) },
+            onThresholdChange = { viewModel.updateThreshold(rule, it) },
+            onDebounceChange = { viewModel.updateDebounceSeconds(rule, it) },
+            onMessageChange = { viewModel.updateMessage(rule, it) },
+            onToggleVoice = { viewModel.toggleVoiceChannel(rule) },
+            onTogglePush = { viewModel.togglePushChannel(rule) },
+            onToggleWhatsapp = { viewModel.toggleWhatsappChannel(rule) }
+        )
     }
 }
 

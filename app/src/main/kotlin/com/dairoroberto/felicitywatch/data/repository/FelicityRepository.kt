@@ -158,7 +158,11 @@ class FelicityRepository @Inject constructor(
                 model = dto.deviceModel,
                 alias = dto.alias,
                 status = dto.status,
-                plantName = dto.plantName
+                plantName = dto.plantName,
+                plantId = dto.plantId,
+                ownerName = dto.ownerName,
+                countryName = dto.countryName,
+                ratedPowerKw = dto.ratedPowerKw?.toDoubleOrNull()
             )
         }
     }

@@ -37,7 +37,14 @@ data class DeviceDto(
     @SerializedName("subType") val subType: String?,
     @SerializedName("status") val status: String?,
     @SerializedName("alias") val alias: String?,
-    @SerializedName("plantName") val plantName: String?
+    @SerializedName("plantName") val plantName: String?,
+    /** Campos de "planta" confirmados contra un snapshot real de
+     * list_device_all_type — no hay capacidad instalada/tipo de
+     * planta/fecha de instalación en este endpoint, solo lo de abajo. */
+    @SerializedName("plantId") val plantId: String?,
+    @SerializedName("realName") val ownerName: String?,
+    @SerializedName("countryName") val countryName: String?,
+    @SerializedName("ratedPower") val ratedPowerKw: String?
 ) {
     companion object {
         const val TYPE_INVERTER = "OC"

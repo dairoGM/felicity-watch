@@ -63,6 +63,8 @@ class RunMonitoringCycleUseCase @Inject constructor(
             socPercent = reading.battery?.socPercent,
             loadPowerWatts = loadPowerWatts,
             batteryPowerWatts = batteryPowerWatts,
+            pvEnergyTodayKwh = reading.inverter?.pvEnergyTodayKwh,
+            loadEnergyTodayKwh = reading.inverter?.loadEnergyTodayKwh,
             now = now
         )
 

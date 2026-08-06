@@ -13,6 +13,11 @@ import androidx.compose.ui.graphics.Color
 data class FelicitySemanticColors(
     val surface2: Color,
     val hairline: Color,
+    /** Texto de título/énfasis — blanco en modo oscuro, casi negro en modo
+     * claro. Usar en títulos de sección (ej. "ESTADO DE LA RED", "GENERACIÓN
+     * PV") que deben resaltar, en vez de textMid/textLow (pensados para
+     * texto secundario atenuado, se ven "apagados" si se les pone negrita). */
+    val textHi: Color,
     val textMid: Color,
     val textLow: Color,
     val green: Color,
@@ -36,6 +41,7 @@ data class FelicitySemanticColors(
 val DarkFelicityColors = FelicitySemanticColors(
     surface2 = PanelSurface2,
     hairline = Hairline,
+    textHi = TextHi,
     textMid = TextMid,
     textLow = TextLow,
     green = Green,
@@ -50,6 +56,7 @@ val DarkFelicityColors = FelicitySemanticColors(
 val LightFelicityColors = FelicitySemanticColors(
     surface2 = LightSurface2,
     hairline = LightHairline,
+    textHi = LightTextHi,
     textMid = LightTextMid,
     textLow = LightTextLow,
     green = LightGreen,

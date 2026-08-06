@@ -6,6 +6,7 @@ import com.dairoroberto.felicitywatch.data.repository.FelicityRepository
 import com.dairoroberto.felicitywatch.domain.model.BatteryReading
 import com.dairoroberto.felicitywatch.domain.model.DeviceInfo
 import com.dairoroberto.felicitywatch.domain.model.InverterReading
+import com.dairoroberto.felicitywatch.domain.model.PlantInfo
 import com.dairoroberto.felicitywatch.domain.usecase.describeMonitoringError
 import com.dairoroberto.felicitywatch.service.MonitoringStateHolder
 import dagger.hilt.android.lifecycle.HiltViewModel
@@ -23,7 +24,24 @@ data class DevicesUiState(
     val error: String? = null,
     val inverterReading: InverterReading? = null,
     val batteryReading: BatteryReading? = null
-)
+) {
+    /** Agrupa por plantId (calcado de la web de Felicity: la planta es la
+     * fila principal, los equipos cuelgan de ella) — dispositivos sin
+     * plantId van a una planta "desconocida" en vez de perderse. */
+    val plants: List<PlantInfo> get() = devices
+        .groupBy { it.plantId ?: it.plantName ?: "unknown" }
+        .map { (_, devicesInPlant) ->
+            val first = devicesInPlant.first()
+            PlantInfo(
+                plantId = first.plantId ?: "unknown",
+                plantName = first.plantName ?: "Planta sin nombre",
+                ownerName = first.ownerName,
+                countryName = first.countryName,
+                ratedPowerKw = devicesInPlant.firstNotNullOfOrNull { it.ratedPowerKw },
+                devices = devicesInPlant
+            )
+        }
+}
 
 @HiltViewModel
 class DevicesViewModel @Inject constructor(
