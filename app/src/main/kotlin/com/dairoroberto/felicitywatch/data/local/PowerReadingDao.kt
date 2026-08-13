@@ -19,6 +19,16 @@ interface PowerReadingDao {
     )
     fun observeBetween(startEpochMillis: Long, endEpochMillis: Long): Flow<List<PowerReadingEntity>>
 
+    /** Última lectura ANTES de un instante — para saber si un tramo que
+     * parece "empezar" al inicio de un rango filtrado en realidad ya
+     * venía del mismo estado desde antes (ej. un corte de luz que empezó
+     * ayer y sigue hoy no debe aparentar que comenzó a medianoche). */
+    @Query(
+        "SELECT * FROM power_readings WHERE timestampEpochMillis < :beforeEpochMillis " +
+            "ORDER BY timestampEpochMillis DESC LIMIT 1"
+    )
+    fun observeLastBefore(beforeEpochMillis: Long): Flow<PowerReadingEntity?>
+
     @Query("DELETE FROM power_readings WHERE timestampEpochMillis < :beforeEpochMillis")
     suspend fun deleteOlderThan(beforeEpochMillis: Long)
 

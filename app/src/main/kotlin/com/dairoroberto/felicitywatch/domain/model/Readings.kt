@@ -18,7 +18,12 @@ data class InverterReading(
     /** Hora que el propio equipo reportó ("dataTimeStr" del snapshot) — si
      * viene muy vieja, es señal de que el equipo está desconectado (ej. por
      * un corte de luz que le quita WiFi al collector), no un bug de la app. */
-    val deviceReportedAt: Instant? = null
+    val deviceReportedAt: Instant? = null,
+    /** Dirección física de la planta ("plantAddress" del snapshot) — la
+     * trae Felicity solo si el usuario la configuró desde su web; puede
+     * venir null. Cuando falta, la UI cae a la dirección manual guardada
+     * en Ajustes en vez de dejar el campo en blanco. */
+    val plantAddress: String? = null
 )
 
 data class BatteryReading(

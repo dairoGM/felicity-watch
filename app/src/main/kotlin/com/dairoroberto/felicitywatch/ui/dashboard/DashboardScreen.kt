@@ -6,6 +6,7 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -23,6 +24,7 @@ import androidx.compose.material.icons.filled.Error
 import androidx.compose.material.icons.filled.Phone
 import androidx.compose.material.icons.filled.Notifications
 import androidx.compose.material.icons.filled.Chat
+import androidx.compose.material.icons.filled.Schedule
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -110,14 +112,12 @@ fun DashboardScreen(viewModel: DashboardViewModel = hiltViewModel()) {
             item { ClockAndConnectionRow(state, now) }
             item { GridHeroCard(state, now) }
             item { MetricsRow(state, now) }
-            item { PvSurplusCard(state) }
-            // Autonomía/Carga se muestran siempre, con o sin corriente de
-            // red: con red, la batería siempre está cargando (el inversor
-            // carga desde la red mientras SOC<100%), así que "Carga completa"
-            // tiene sentido incluso online. Sin red, "Carga completa" refleja
-            // el excedente solar si lo hay, o el proceso de DESCARGA si el
-            // consumo supera al PV (mismo anillo, misma card, sin dejar un
-            // "—" sin explicación).
+            // Autonomía (anillo) y Excedente Solar (dos barras PV/Consumo)
+            // lado a lado — el segundo reemplaza al antiguo anillo de "Carga
+            // completa/Descarga", que duplicaba las mismas horas que ya
+            // muestra Autonomía en el escenario sin red/sin excedente. El
+            // card standalone de excedente que existía antes (PvSurplusCard)
+            // se retiró para no repetir la misma información dos veces.
             item { BatteryProjectionRow(state) }
             item { ChannelsRow(state) }
         }
@@ -212,6 +212,24 @@ private fun GridHeroCard(state: DashboardUiState, now: Instant) {
     val unknown = state.liveGridState == GridState.UNKNOWN
     val accent = if (unknown) colors.textLow else if (online) colors.green else MaterialTheme.colorScheme.error
 
+    // Misma fuente que el Reporte (pestaña Corriente): se reconstruyen los
+    // tramos reales desde el historial de 30 días, en vez de depender de
+    // lastGridChangeAt (que solo se actualiza cuando una regla de alerta
+    // se dispara y podía quedar desfasado) — así el Panel y el Reporte
+    // nunca pueden mostrar un "lleva X tiempo" distinto entre sí.
+    val segments = remember(state.allReadingsLast30Days, now) {
+        com.dairoroberto.felicitywatch.domain.usecase.buildGridSegments(state.allReadingsLast30Days, now.toEpochMilli())
+    }
+    val lastSegment = segments.lastOrNull()
+    val elapsedText = if (!unknown && lastSegment != null && lastSegment.online == online) {
+        val elapsed = Duration.between(Instant.ofEpochMilli(lastSegment.startEpochMillis), now)
+        val hours = elapsed.toHours()
+        val minutes = elapsed.toMinutes() % 60
+        if (hours > 0) "${hours}h ${minutes}min" else "${minutes}min"
+    } else {
+        null
+    }
+
     Card(
         colors = CardDefaults.cardColors(containerColor = colors.surface2),
         shape = RoundedCornerShape(16.dp),
@@ -219,19 +237,48 @@ private fun GridHeroCard(state: DashboardUiState, now: Instant) {
         modifier = Modifier.fillMaxWidth()
     ) {
         Column(Modifier.padding(18.dp)) {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Box(
-                    Modifier
-                        .size(10.dp)
-                        .clip(CircleShape)
-                        .background(accent)
-                )
-                Text(
-                    "  ESTADO DE LA RED",
-                    style = MaterialTheme.typography.labelSmall,
-                    color = colors.textHi,
-                    fontWeight = FontWeight.Bold
-                )
+            Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
+                Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.weight(1f)) {
+                    Box(
+                        Modifier
+                            .size(10.dp)
+                            .clip(CircleShape)
+                            .background(accent)
+                    )
+                    Text(
+                        "  ESTADO DE LA RED",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = colors.textHi,
+                        fontWeight = FontWeight.Bold
+                    )
+                }
+                // Badge de tiempo transcurrido — el indicador que pidió el
+                // cliente ("3h 32min con corriente"), tratado como un
+                // elemento visual propio (no un texto secundario gris) para
+                // que destaque igual que el estado principal.
+                if (elapsedText != null) {
+                    Row(
+                        modifier = Modifier
+                            .clip(RoundedCornerShape(50))
+                            .background(accent.copy(alpha = 0.14f))
+                            .padding(horizontal = 10.dp, vertical = 5.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Icon(
+                            Icons.Default.Schedule,
+                            contentDescription = null,
+                            tint = accent,
+                            modifier = Modifier.size(13.dp)
+                        )
+                        Text(
+                            elapsedText,
+                            style = MaterialTheme.typography.labelSmall,
+                            fontWeight = FontWeight.Bold,
+                            color = accent,
+                            modifier = Modifier.padding(start = 4.dp)
+                        )
+                    }
+                }
             }
             Text(
                 when {
@@ -245,7 +292,7 @@ private fun GridHeroCard(state: DashboardUiState, now: Instant) {
                 modifier = Modifier.padding(top = 10.dp)
             )
             Text(
-                lastChangeLabel(state.lastGridChangeAt, now),
+                gridSinceLabel(lastSegment, online, unknown),
                 style = MaterialTheme.typography.bodySmall,
                 color = colors.textMid,
                 modifier = Modifier.padding(top = 8.dp)
@@ -254,16 +301,21 @@ private fun GridHeroCard(state: DashboardUiState, now: Instant) {
     }
 }
 
-private fun lastChangeLabel(lastChangeAt: Instant?, now: Instant): String {
-    if (lastChangeAt == null) return "Todavía no se confirmó ningún cambio"
-    val elapsed = Duration.between(lastChangeAt, now)
-    val hours = elapsed.toHours()
-    val minutes = elapsed.toMinutes() % 60
-    return when {
-        hours > 0 -> "Último cambio confirmado hace ${hours} h ${minutes} min"
-        minutes > 0 -> "Último cambio confirmado hace ${minutes} min"
-        else -> "Último cambio confirmado hace instantes"
+/** "Desde las 09:15am" — hora exacta en que comenzó el tramo vigente,
+ * complementa el badge de tiempo transcurrido con un ancla temporal
+ * concreta (mismo criterio de formato 12h que usa el Reporte). */
+private fun gridSinceLabel(
+    lastSegment: com.dairoroberto.felicitywatch.ui.components.GridSegment?,
+    online: Boolean,
+    unknown: Boolean
+): String {
+    if (unknown || lastSegment == null || lastSegment.online != online) {
+        return "Todavía no se confirmó ningún cambio"
     }
+    val zoned = Instant.ofEpochMilli(lastSegment.startEpochMillis).atZone(ZoneId.systemDefault())
+    val hourFormatter = DateTimeFormatter.ofPattern("hh:mm").withLocale(Locale("es", "ES"))
+    val suffix = if (zoned.hour < 12) "am" else "pm"
+    return "Desde las ${hourFormatter.format(zoned)}$suffix"
 }
 
 @Composable
@@ -337,118 +389,129 @@ private fun MetricsRow(state: DashboardUiState, now: Instant) {
  * visual dedicada en vez de dejar que el usuario reste dos tarjetas
  * separadas mentalmente.
  */
+/**
+ * Reemplaza al antiguo anillo de "Carga completa/Descarga" (que repetía las
+ * mismas horas que ya muestra el anillo de Autonomía en el escenario sin
+ * red/sin excedente) y al card standalone de excedente solar que existía
+ * antes — misma información (PV vs consumo de la casa), en el mismo tamaño
+ * de card que ProjectionCard para que la fila quede pareja, con dos barras
+ * VERTICALES en vez de un anillo: más directo para comparar dos magnitudes
+ * a la vez que una cuenta de horas.
+ */
 @Composable
-private fun PvSurplusCard(state: DashboardUiState) {
+private fun PvSurplusMiniCard(state: DashboardUiState, modifier: Modifier = Modifier) {
     val colors = LocalFelicityColors.current
     val pv = state.inverter?.pvPowerWatts
     val load = state.inverter?.loadPowerWatts
-    val soc = state.battery?.socPercent
-    val batteryFull = soc != null && soc >= 100
 
     Card(
         colors = CardDefaults.cardColors(containerColor = colors.surface2),
         shape = RoundedCornerShape(16.dp),
         elevation = CardDefaults.cardElevation(defaultElevation = 1.dp),
-        modifier = Modifier.fillMaxWidth()
+        modifier = modifier
     ) {
-        Column(Modifier.padding(16.dp)) {
+        Column(
+            Modifier.fillMaxWidth().padding(vertical = 16.dp, horizontal = 8.dp),
+            horizontalAlignment = Alignment.CenterHorizontally
+        ) {
+            if (pv == null || load == null) {
+                Box(modifier = Modifier.height(104.dp), contentAlignment = Alignment.Center) {
+                    Text("—", fontFamily = SpaceGroteskFamily, fontWeight = FontWeight.SemiBold, fontSize = 22.sp, color = colors.textLow)
+                }
+            } else {
+                val maxScale = maxOf(pv, load, 1)
+                Row(
+                    horizontalArrangement = Arrangement.spacedBy(20.dp),
+                    verticalAlignment = Alignment.Bottom,
+                    modifier = Modifier.height(104.dp)
+                ) {
+                    SurplusVerticalBar(label = "PV", value = pv, maxScale = maxScale, color = colors.green)
+                    SurplusVerticalBar(label = "Consumo", value = load, maxScale = maxScale, color = MaterialTheme.colorScheme.error)
+                }
+            }
             Text(
                 "EXCEDENTE SOLAR",
                 style = MaterialTheme.typography.labelSmall,
                 color = colors.textHi,
-                fontWeight = FontWeight.Bold
+                fontWeight = FontWeight.Bold,
+                modifier = Modifier.padding(top = 10.dp)
             )
-
-            if (pv == null || load == null) {
-                Text(
-                    "Sin datos suficientes de PV/consumo en este ciclo",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = colors.textLow,
-                    modifier = Modifier.padding(top = 8.dp)
-                )
-                return@Column
-            }
-
-            val maxScale = maxOf(pv, load, 1)
-            Column(Modifier.padding(top = 12.dp)) {
-                SurplusBarRow(label = "PV", value = pv, maxScale = maxScale, color = colors.accent)
-                SurplusBarRow(
-                    label = "Consumo",
-                    value = load,
-                    maxScale = maxScale,
-                    color = colors.textLow,
-                    modifier = Modifier.padding(top = 8.dp)
-                )
-            }
-
-            val surplus = pv - load
-            val (message, messageColor) = when {
-                surplus > 0 && batteryFull -> "Batería llena · +${formatPowerValue(surplus)} ${formatPowerUnit(surplus)} sin usar" to colors.textMid
-                surplus > 0 -> "+${formatPowerValue(surplus)} ${formatPowerUnit(surplus)} disponibles para cargar la batería" to colors.green
-                surplus < 0 -> "${formatPowerValue(-surplus)} ${formatPowerUnit(-surplus)} de déficit · lo cubre batería/red" to MaterialTheme.colorScheme.error
-                else -> "PV y consumo equilibrados" to colors.textMid
+            val subtitle = if (pv != null && load != null) {
+                val surplus = pv - load
+                when {
+                    surplus > 0 -> "+${formatPowerValue(surplus)} ${formatPowerUnit(surplus)} de excedente"
+                    surplus < 0 -> "${formatPowerValue(-surplus)} ${formatPowerUnit(-surplus)} de déficit"
+                    else -> "PV y consumo equilibrados"
+                }
+            } else {
+                "Sin datos suficientes"
             }
             Text(
-                message,
-                style = MaterialTheme.typography.bodyMedium,
-                fontWeight = FontWeight.Medium,
-                color = messageColor,
-                modifier = Modifier.padding(top = 12.dp)
+                subtitle,
+                style = MaterialTheme.typography.labelSmall,
+                color = colors.textLow,
+                textAlign = TextAlign.Center,
+                maxLines = 2,
+                minLines = 2,
+                modifier = Modifier.padding(top = 2.dp)
             )
         }
     }
 }
 
 @Composable
-private fun SurplusBarRow(
+private fun SurplusVerticalBar(
     label: String,
     value: Int,
     maxScale: Int,
-    color: androidx.compose.ui.graphics.Color,
-    modifier: Modifier = Modifier
+    color: androidx.compose.ui.graphics.Color
 ) {
     val colors = LocalFelicityColors.current
-    val fraction = (value.toFloat() / maxScale).coerceIn(0f, 1f)
+    val fraction = (value.toFloat() / maxScale).coerceIn(0.03f, 1f)
 
-    Row(verticalAlignment = Alignment.CenterVertically, modifier = modifier.fillMaxWidth()) {
+    Column(horizontalAlignment = Alignment.CenterHorizontally) {
         Text(
-            label,
+            "${formatPowerValue(value)}${formatPowerUnit(value)}",
             style = MaterialTheme.typography.labelSmall,
-            color = colors.textMid,
-            modifier = Modifier.width(64.dp)
+            color = colors.textHi,
+            fontWeight = FontWeight.Medium
         )
         Box(
             Modifier
-                .weight(1f)
-                .height(10.dp)
-                .clip(RoundedCornerShape(5.dp))
-                .background(colors.hairline)
+                .padding(top = 4.dp)
+                .width(28.dp)
+                .height(56.dp)
+                .clip(RoundedCornerShape(6.dp))
+                .background(colors.hairline),
+            contentAlignment = Alignment.BottomCenter
         ) {
             Box(
                 Modifier
-                    .fillMaxWidth(fraction)
-                    .height(10.dp)
-                    .clip(RoundedCornerShape(5.dp))
+                    .fillMaxWidth()
+                    .fillMaxHeight(fraction)
+                    .clip(RoundedCornerShape(6.dp))
                     .background(color)
             )
         }
         Text(
-            "${formatPowerValue(value)} ${formatPowerUnit(value)}",
+            label,
             style = MaterialTheme.typography.labelSmall,
-            color = colors.textHi,
-            modifier = Modifier.padding(start = 8.dp).width(64.dp),
-            textAlign = TextAlign.End
+            color = colors.textMid,
+            modifier = Modifier.padding(top = 4.dp)
         )
     }
 }
 
-/** Autonomía y tiempo de carga lado a lado, cada uno con un anillo de
- * progreso — más memorable que dos tarjetas apiladas de solo texto. */
+/** Autonomía (anillo de progreso) y Excedente Solar (dos barras PV/Consumo)
+ * lado a lado, mismo alto — más memorable que tarjetas apiladas de solo
+ * texto, y evita repetir las mismas horas de autonomía dos veces con
+ * distinto nombre (antes el segundo anillo mostraba "Descarga" con el
+ * mismo número que ya muestra Autonomía). */
 @Composable
 private fun BatteryProjectionRow(state: DashboardUiState) {
     Row(horizontalArrangement = Arrangement.spacedBy(10.dp), modifier = Modifier.fillMaxWidth()) {
         BatteryRuntimeRing(state, modifier = Modifier.weight(1f))
-        BatteryChargingRing(state, modifier = Modifier.weight(1f))
+        PvSurplusMiniCard(state, modifier = Modifier.weight(1f))
     }
 }
 
@@ -521,140 +584,6 @@ private fun BatteryRuntimeRing(state: DashboardUiState, modifier: Modifier = Mod
         } else {
             Text("—", fontFamily = SpaceGroteskFamily, fontWeight = FontWeight.SemiBold, fontSize = 22.sp, color = colors.textLow)
         }
-    }
-}
-
-/**
- * Este anillo cubre 3 estados posibles de la batería, priorizados en este
- * orden (confirmado con el usuario que con red la batería SIEMPRE carga
- * mientras SOC<100%, sin depender del sol):
- * 1) Llena (SOC>=100%) — no hay nada que proyectar.
- * 2) Con corriente de red: la red carga la batería activamente. No hay una
- *    tasa de carga confiable que reportar (current/voltage del BMS no son
- *    confiables — mismo motivo por el que MetricsRow ya evita usarlos), así
- *    que se muestra el proceso de carga en curso sin ETA numérico.
- * 3) Sin corriente de red:
- *    a) Con excedente solar (PV > consumo): tiempo de carga completa =
- *       energía faltante (Wh) / excedente (W). (comportamiento original)
- *    b) Sin excedente (consumo >= PV): la batería se está DESCARGANDO — el
- *       mismo anillo pasa a mostrar autonomía restante en vez de un "—" sin
- *       explicación, formula igual a BatteryRuntimeRing.
- */
-@Composable
-private fun BatteryChargingRing(state: DashboardUiState, modifier: Modifier = Modifier) {
-    val colors = LocalFelicityColors.current
-    val soc = state.battery?.socPercent
-    val pvWatts = state.inverter?.pvPowerWatts
-    val loadWatts = state.inverter?.loadPowerWatts
-    val capacityAh = state.battery?.capacityAh
-    val voltage = state.battery?.voltage
-    val onGrid = state.liveGridState == GridState.ONLINE
-    val surplusWatts = if (pvWatts != null && loadWatts != null) pvWatts - loadWatts else null
-
-    val hasCapacityData = capacityAh != null && capacityAh > 0 && voltage != null && voltage > 0
-
-    val chargingHours: Double? = if (!onGrid && soc != null && soc < 100 && surplusWatts != null && surplusWatts > 0 && hasCapacityData) {
-        val missingWh = capacityAh!! * voltage!! * ((100 - soc) / 100.0)
-        missingWh / surplusWatts
-    } else null
-
-    val dischargingHours: Double? = if (!onGrid && soc != null && loadWatts != null && loadWatts > 0 &&
-        (surplusWatts == null || surplusWatts <= 0) && hasCapacityData
-    ) {
-        val availableWh = capacityAh!! * voltage!! * (soc / 100.0)
-        availableWh / loadWatts
-    } else null
-
-    val full = soc != null && soc >= 100
-    val chargingFromGrid = !full && onGrid && soc != null
-
-    val stalledReason: String? = when {
-        full || chargingFromGrid || chargingHours != null || dischargingHours != null -> null
-        surplusWatts != null && surplusWatts <= 0 && loadWatts == null -> "Sin consumo que estimar"
-        !hasCapacityData -> "Sin dato suficiente"
-        else -> null
-    }
-
-    val ringColor = when {
-        full -> colors.green
-        chargingFromGrid || chargingHours != null -> colors.accent
-        dischargingHours != null -> MaterialTheme.colorScheme.error
-        else -> colors.textLow
-    }
-
-    ProjectionCard(
-        label = if (dischargingHours != null) "DESCARGA" else "CARGA COMPLETA",
-        ringColor = ringColor,
-        progress = (soc ?: 0) / 100f,
-        subtitle = stalledReason,
-        modifier = modifier
-    ) {
-        when {
-            full -> Text(
-                "Llena",
-                fontFamily = SpaceGroteskFamily,
-                fontWeight = FontWeight.SemiBold,
-                fontSize = 18.sp,
-                color = colors.green
-            )
-            chargingFromGrid -> ChargeDirectionContent(charging = true, color = colors.accent) {
-                Text(
-                    "Cargando",
-                    fontFamily = SpaceGroteskFamily,
-                    fontWeight = FontWeight.SemiBold,
-                    fontSize = 16.sp,
-                    color = colors.accent
-                )
-            }
-            chargingHours != null -> {
-                val hours = chargingHours.toLong()
-                val minutes = ((chargingHours - hours) * 60).toLong()
-                ChargeDirectionContent(charging = true, color = colors.accent) {
-                    Text(
-                        if (hours > 0) "${hours}h ${minutes}m" else "${minutes}m",
-                        fontFamily = SpaceGroteskFamily,
-                        fontWeight = FontWeight.SemiBold,
-                        fontSize = 18.sp,
-                        color = colors.accent
-                    )
-                }
-            }
-            dischargingHours != null -> {
-                val hours = dischargingHours.toLong()
-                val minutes = ((dischargingHours - hours) * 60).toLong()
-                ChargeDirectionContent(charging = false, color = MaterialTheme.colorScheme.error) {
-                    Text(
-                        if (hours > 0) "${hours}h ${minutes}m" else "${minutes}m",
-                        fontFamily = SpaceGroteskFamily,
-                        fontWeight = FontWeight.SemiBold,
-                        fontSize = 18.sp,
-                        color = MaterialTheme.colorScheme.error
-                    )
-                }
-            }
-            else -> Text("—", fontFamily = SpaceGroteskFamily, fontWeight = FontWeight.SemiBold, fontSize = 22.sp, color = colors.textLow)
-        }
-    }
-}
-
-/** Flecha (creciendo/decreciendo) sobre el valor, DENTRO del propio anillo
- * — antes el anillo de "Carga completa"/"Descarga" solo distinguía el
- * estado por color y texto, sin el mismo indicador visual de flecha que ya
- * tiene la tarjeta de BATERÍA en MetricsRow. */
-@Composable
-private fun ChargeDirectionContent(
-    charging: Boolean,
-    color: androidx.compose.ui.graphics.Color,
-    content: @Composable () -> Unit
-) {
-    Column(horizontalAlignment = Alignment.CenterHorizontally) {
-        Icon(
-            if (charging) Icons.Default.ArrowUpward else Icons.Default.ArrowDownward,
-            contentDescription = if (charging) "Cargando" else "Descargando",
-            tint = color,
-            modifier = Modifier.size(16.dp)
-        )
-        content()
     }
 }
 

@@ -76,6 +76,7 @@ object FelicitySnapshotMapper {
         val gridFeedEnergyToday = firstDouble(data, "eGridFeedToday", "feedOutput")
         val gridInputEnergyToday = firstDouble(data, "eInvToday", "gridInput")
         val loadEnergyToday = firstDouble(data, "eLoadToday", "loadConsumption")
+        val plantAddress = firstNonBlank(data, "plantAddress")
 
         return InverterReading(
             timestamp = now,
@@ -87,7 +88,8 @@ object FelicitySnapshotMapper {
             gridFeedEnergyTodayKwh = gridFeedEnergyToday,
             gridInputEnergyTodayKwh = gridInputEnergyToday,
             loadEnergyTodayKwh = loadEnergyToday,
-            deviceReportedAt = deviceReportedAt(data)
+            deviceReportedAt = deviceReportedAt(data),
+            plantAddress = plantAddress
         )
     }
 

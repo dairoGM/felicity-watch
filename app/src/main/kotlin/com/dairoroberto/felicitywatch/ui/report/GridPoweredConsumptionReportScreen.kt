@@ -5,12 +5,14 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.HorizontalDivider
@@ -37,14 +39,16 @@ import java.time.format.DateTimeFormatter
 import java.util.Locale
 
 private enum class ConsumptionGranularity { DAY, MONTH }
-private enum class ConsumptionSource { GRID, BATTERY, BOTH }
 
 /**
- * Reporte de consumo eléctrico, filtrable por fuente: con corriente de la
- * calle (red), sin corriente (abastecido por la batería durante cortes), o
- * ambos combinados — antes solo cubría "con red", sin forma de saber cuánto
- * se consumió durante los cortes. Es una pestaña más de Reporte, reutiliza
- * el mismo selector de periodo/fecha de las demás pestañas.
+ * Reporte de consumo eléctrico rediseñado — muestra siempre las dos
+ * columnas "Con Red" y "Sin Red" lado a lado, sin filtro de fuente
+ * (antes había un segmentado Todo/Con red/Sin red que ocultaba una
+ * fuente u otra). Incluye promedio de consumo diario por fuente.
+ *
+ * Los dos gráficos (consumo por periodo + perfil por hora) se muestran
+ * como tarjetas separadas para evitar que el segundo quede enterrado
+ * detrás de scroll excesivo.
  */
 @Composable
 internal fun GridPoweredConsumptionCard(
@@ -52,27 +56,8 @@ internal fun GridPoweredConsumptionCard(
     colors: com.dairoroberto.felicitywatch.ui.theme.FelicitySemanticColors
 ) {
     var granularity by remember { mutableStateOf(ConsumptionGranularity.DAY) }
-    var source by remember { mutableStateOf(ConsumptionSource.BOTH) }
 
     Column {
-        SingleChoiceSegmentedButtonRow(modifier = Modifier.fillMaxWidth()) {
-            SegmentedButton(
-                selected = source == ConsumptionSource.BOTH,
-                onClick = { source = ConsumptionSource.BOTH },
-                shape = SegmentedButtonDefaults.itemShape(index = 0, count = 3)
-            ) { Text("Todo") }
-            SegmentedButton(
-                selected = source == ConsumptionSource.GRID,
-                onClick = { source = ConsumptionSource.GRID },
-                shape = SegmentedButtonDefaults.itemShape(index = 1, count = 3)
-            ) { Text("Con red") }
-            SegmentedButton(
-                selected = source == ConsumptionSource.BATTERY,
-                onClick = { source = ConsumptionSource.BATTERY },
-                shape = SegmentedButtonDefaults.itemShape(index = 2, count = 3)
-            ) { Text("Sin red") }
-        }
-
         SingleChoiceSegmentedButtonRow(modifier = Modifier.fillMaxWidth().padding(top = 8.dp)) {
             SegmentedButton(
                 selected = granularity == ConsumptionGranularity.DAY,
@@ -86,7 +71,8 @@ internal fun GridPoweredConsumptionCard(
             ) { Text("Por mes") }
         }
 
-        ConsumptionReportCard(readings, granularity, source, colors, modifier = Modifier.padding(top = 14.dp))
+        ConsumptionReportCard(readings, granularity, colors, modifier = Modifier.padding(top = 14.dp))
+        HourlyConsumptionCard(readings, colors, modifier = Modifier.padding(top = 14.dp))
     }
 }
 
@@ -94,7 +80,6 @@ internal fun GridPoweredConsumptionCard(
 private fun ConsumptionReportCard(
     readings: List<PowerReadingEntity>,
     granularity: ConsumptionGranularity,
-    source: ConsumptionSource,
     colors: com.dairoroberto.felicitywatch.ui.theme.FelicitySemanticColors,
     modifier: Modifier = Modifier
 ) {
@@ -105,33 +90,8 @@ private fun ConsumptionReportCard(
         modifier = modifier.fillMaxWidth()
     ) {
         Column(Modifier.padding(16.dp)) {
-            val (title, subtitle) = when (source) {
-                ConsumptionSource.GRID -> "CONSUMO CON CORRIENTE DE LA CALLE" to
-                    "Solo la energía consumida mientras había corriente eléctrica de la red."
-                ConsumptionSource.BATTERY -> "CONSUMO SIN CORRIENTE (BATERÍA)" to
-                    "Solo la energía consumida durante cortes, abastecida por la batería."
-                ConsumptionSource.BOTH -> "CONSUMO TOTAL" to
-                    "Toda la energía consumida, venga de la red o de la batería durante cortes."
-            }
-            // Un color fijo por fuente en todo el reporte (barra principal +
-            // resumen final), para que el usuario identifique de un vistazo
-            // qué está viendo sin leer el título — antes el gráfico principal
-            // usaba siempre el mismo color sin importar el filtro elegido.
-            val gridColorAccent = colors.accent
-            val batteryColorAccent = colors.chargeAccent
-            val chartBarColor = when (source) {
-                ConsumptionSource.GRID -> gridColorAccent
-                ConsumptionSource.BATTERY -> batteryColorAccent
-                ConsumptionSource.BOTH -> MaterialTheme.colorScheme.secondary
-            }
-            Text(title, style = MaterialTheme.typography.labelSmall, color = colors.textLow)
-            Text(
-                subtitle,
-                style = MaterialTheme.typography.bodySmall,
-                color = colors.textMid,
-                modifier = Modifier.padding(top = 4.dp, bottom = 4.dp)
-            )
-
+            Text("CONSUMO POR DÍA", style = MaterialTheme.typography.labelSmall, color = colors.textLow)
+            
             val zone = ZoneId.systemDefault()
             val byDayAndSource = computeConsumptionByDayAndSource(readings, zone)
 
@@ -145,107 +105,116 @@ private fun ConsumptionReportCard(
                 return@Column
             }
 
-            val dailyKwh: Map<LocalDate, Double> = byDayAndSource.mapValues { (_, split) ->
-                when (source) {
-                    ConsumptionSource.GRID -> split.gridKwh
-                    ConsumptionSource.BATTERY -> split.batteryKwh
-                    ConsumptionSource.BOTH -> split.gridKwh + split.batteryKwh
-                }
-            }
+            val groupedGrid: Map<String, Double>
+            val groupedBattery: Map<String, Double>
 
-            val grouped: Map<String, Double> = when (granularity) {
-                ConsumptionGranularity.DAY -> dailyKwh.mapKeys { (date, _) ->
-                    DateTimeFormatter.ofPattern("d MMM").withLocale(Locale("es", "ES")).format(date)
+            when (granularity) {
+                ConsumptionGranularity.DAY -> {
+                    groupedGrid = byDayAndSource.mapKeys { (date, _) ->
+                        DateTimeFormatter.ofPattern("d MMM").withLocale(Locale("es", "ES")).format(date)
+                    }.mapValues { it.value.gridKwh }
+                    
+                    groupedBattery = byDayAndSource.mapKeys { (date, _) ->
+                        DateTimeFormatter.ofPattern("d MMM").withLocale(Locale("es", "ES")).format(date)
+                    }.mapValues { it.value.batteryKwh }
                 }
-                ConsumptionGranularity.MONTH -> dailyKwh.entries
-                    .groupBy { YearMonth.from(it.key) }
-                    .mapValues { (_, entries) -> entries.sumOf { it.value } }
-                    .toSortedMap()
-                    .mapKeys { (yearMonth, _) ->
+                ConsumptionGranularity.MONTH -> {
+                    val groupedByMonth = byDayAndSource.entries.groupBy { YearMonth.from(it.key) }
+                    groupedGrid = groupedByMonth.toSortedMap().mapKeys { (yearMonth, _) ->
                         DateTimeFormatter.ofPattern("MMM yyyy").withLocale(Locale("es", "ES")).format(yearMonth)
-                    }
+                    }.mapValues { (_, entries) -> entries.sumOf { it.value.gridKwh } }
+                    
+                    groupedBattery = groupedByMonth.toSortedMap().mapKeys { (yearMonth, _) ->
+                        DateTimeFormatter.ofPattern("MMM yyyy").withLocale(Locale("es", "ES")).format(yearMonth)
+                    }.mapValues { (_, entries) -> entries.sumOf { it.value.batteryKwh } }
+                }
             }
 
-            val total = grouped.values.sum()
-            val average = total / grouped.size
+            val totalGrid = groupedGrid.values.sum()
+            val averageGrid = totalGrid / groupedGrid.size.coerceAtLeast(1)
+            
+            val totalBattery = groupedBattery.values.sum()
+            val averageBattery = totalBattery / groupedBattery.size.coerceAtLeast(1)
 
-            Row(
-                modifier = Modifier.fillMaxWidth().padding(top = 10.dp),
-                horizontalArrangement = Arrangement.spacedBy(10.dp)
-            ) {
-                GenerationStatTile(
-                    label = "Total del periodo",
-                    value = String.format(Locale("es", "ES"), "%.1f", total),
-                    unit = "kWh",
-                    color = colors.accent,
-                    modifier = Modifier.weight(1f)
-                )
-                GenerationStatTile(
-                    label = if (granularity == ConsumptionGranularity.DAY) "Promedio diario" else "Promedio mensual",
-                    value = String.format(Locale("es", "ES"), "%.1f", average),
-                    unit = "kWh",
-                    color = colors.textMid,
-                    modifier = Modifier.weight(1f)
-                )
+            val gridColorAccent = colors.accent
+            val batteryColorAccent = colors.chargeAccent
+
+            Row(modifier = Modifier.fillMaxWidth().padding(top = 10.dp), horizontalArrangement = Arrangement.spacedBy(16.dp)) {
+                Column(modifier = Modifier.weight(1f)) {
+                    Text("Con Red", style = MaterialTheme.typography.labelMedium, color = gridColorAccent, fontWeight = FontWeight.Bold)
+                    GenerationStatTile(
+                        label = "Total",
+                        value = String.format(Locale("es", "ES"), "%.1f", totalGrid),
+                        unit = "kWh",
+                        color = gridColorAccent,
+                        modifier = Modifier.fillMaxWidth().padding(top = 8.dp)
+                    )
+                    GenerationStatTile(
+                        label = if (granularity == ConsumptionGranularity.DAY) "Promedio diario" else "Promedio mensual",
+                        value = String.format(Locale("es", "ES"), "%.1f", averageGrid),
+                        unit = "kWh",
+                        color = colors.textMid,
+                        modifier = Modifier.fillMaxWidth().padding(top = 8.dp)
+                    )
+                    val entriesGrid = groupedGrid.map { (label, kwh) -> BarChartEntry(label = label, value = kwh.toFloat()) }
+                    DailyBarChart(
+                        entries = entriesGrid,
+                        barColor = gridColorAccent,
+                        gridColor = colors.hairline,
+                        textColor = colors.textLow,
+                        valueFormatter = { "%.1f kWh".format(it) },
+                        modifier = Modifier.padding(top = 16.dp)
+                    )
+                }
+                
+                Column(modifier = Modifier.weight(1f)) {
+                    Text("Sin Red (Batería)", style = MaterialTheme.typography.labelMedium, color = batteryColorAccent, fontWeight = FontWeight.Bold)
+                    GenerationStatTile(
+                        label = "Total",
+                        value = String.format(Locale("es", "ES"), "%.1f", totalBattery),
+                        unit = "kWh",
+                        color = batteryColorAccent,
+                        modifier = Modifier.fillMaxWidth().padding(top = 8.dp)
+                    )
+                    GenerationStatTile(
+                        label = if (granularity == ConsumptionGranularity.DAY) "Promedio diario" else "Promedio mensual",
+                        value = String.format(Locale("es", "ES"), "%.1f", averageBattery),
+                        unit = "kWh",
+                        color = colors.textMid,
+                        modifier = Modifier.fillMaxWidth().padding(top = 8.dp)
+                    )
+                    val entriesBattery = groupedBattery.map { (label, kwh) -> BarChartEntry(label = label, value = kwh.toFloat()) }
+                    DailyBarChart(
+                        entries = entriesBattery,
+                        barColor = batteryColorAccent,
+                        gridColor = colors.hairline,
+                        textColor = colors.textLow,
+                        valueFormatter = { "%.1f kWh".format(it) },
+                        modifier = Modifier.padding(top = 16.dp)
+                    )
+                }
             }
 
-            val entries = grouped.map { (label, kwh) -> BarChartEntry(label = label, value = kwh.toFloat()) }
-            DailyBarChart(
-                entries = entries,
-                barColor = chartBarColor,
-                gridColor = colors.hairline,
-                textColor = colors.textLow,
-                valueFormatter = { "%.1f kWh".format(it) },
-                modifier = Modifier.padding(top = 16.dp)
-            )
-
-            val labelStep = (entries.size / 6).coerceAtLeast(1)
+            val entriesForLabels = groupedGrid.map { (label, kwh) -> BarChartEntry(label = label, value = kwh.toFloat()) }
+            val labelStep = (entriesForLabels.size / 4).coerceAtLeast(1)
             Row(
                 modifier = Modifier.fillMaxWidth().padding(top = 4.dp),
                 horizontalArrangement = Arrangement.SpaceBetween
             ) {
-                entries.forEachIndexed { index, entry ->
+                entriesForLabels.forEachIndexed { index, entry ->
                     if (index % labelStep == 0) {
                         Text(entry.label, style = MaterialTheme.typography.labelSmall, color = colors.textLow)
                     }
                 }
             }
 
-            // Totalización con/sin red del periodo completo, independiente
-            // del filtro elegido arriba — para que el usuario siempre pueda
-            // comparar ambas fuentes de un vistazo sin cambiar de pestaña.
-            val totalGridKwh = byDayAndSource.values.sumOf { it.gridKwh }
-            val totalBatteryKwh = byDayAndSource.values.sumOf { it.batteryKwh }
-            val combinedTotal = (totalGridKwh + totalBatteryKwh).coerceAtLeast(0.0001)
-
+            val combinedTotal = (totalGrid + totalBattery).coerceAtLeast(0.0001)
             HorizontalDivider(modifier = Modifier.padding(top = 16.dp, bottom = 12.dp), color = colors.hairline)
             Text(
-                "TOTAL DEL PERIODO POR FUENTE",
+                "Proporción de consumo total combinado",
                 style = MaterialTheme.typography.labelSmall,
                 color = colors.textLow
             )
-            Row(
-                modifier = Modifier.fillMaxWidth().padding(top = 10.dp),
-                horizontalArrangement = Arrangement.spacedBy(10.dp)
-            ) {
-                GenerationStatTile(
-                    label = "Con red",
-                    value = String.format(Locale("es", "ES"), "%.1f", totalGridKwh),
-                    unit = "kWh",
-                    color = gridColorAccent,
-                    modifier = Modifier.weight(1f)
-                )
-                GenerationStatTile(
-                    label = "Sin red (batería)",
-                    value = String.format(Locale("es", "ES"), "%.1f", totalBatteryKwh),
-                    unit = "kWh",
-                    color = batteryColorAccent,
-                    modifier = Modifier.weight(1f)
-                )
-            }
-            // Barra apilada simple: proporción visual de cuánto del consumo
-            // total vino de cada fuente. Mismos colores que arriba (teal =
-            // red, morado = batería) para que la relación sea inmediata.
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -255,25 +224,162 @@ private fun ConsumptionReportCard(
             ) {
                 Box(
                     Modifier
-                        .weight((totalGridKwh / combinedTotal).toFloat().coerceIn(0.0001f, 1f))
+                        .weight((totalGrid / combinedTotal).toFloat().coerceIn(0.0001f, 1f))
                         .fillMaxHeight()
                         .background(gridColorAccent)
                 )
                 Box(
                     Modifier
-                        .weight((totalBatteryKwh / combinedTotal).toFloat().coerceIn(0.0001f, 1f))
+                        .weight((totalBattery / combinedTotal).toFloat().coerceIn(0.0001f, 1f))
                         .fillMaxHeight()
                         .background(batteryColorAccent)
                 )
             }
             Text(
-                "Total combinado: ${String.format(Locale("es", "ES"), "%.1f", totalGridKwh + totalBatteryKwh)} kWh",
+                "Total combinado: ${String.format(Locale("es", "ES"), "%.1f", totalGrid + totalBattery)} kWh",
                 style = MaterialTheme.typography.labelSmall,
                 color = colors.textLow,
                 modifier = Modifier.padding(top = 8.dp)
             )
         }
     }
+}
+
+/**
+ * Línea de tiempo de consumo por hora del día — responde directamente
+ * "¿a qué hora consumo más?" con una barra por franja horaria (12:00am-01:00am,
+ * 01:00am-02:00am, ...) y el valor exacto en kWh al tocarla. Las
+ * etiquetas usan formato 12h (01:00pm en vez de 13:00) para
+ * consistencia con el resto de la app.
+ */
+@Composable
+private fun HourlyConsumptionCard(
+    readings: List<PowerReadingEntity>,
+    colors: com.dairoroberto.felicitywatch.ui.theme.FelicitySemanticColors,
+    modifier: Modifier = Modifier
+) {
+    Card(
+        colors = CardDefaults.cardColors(containerColor = colors.surface2),
+        shape = RoundedCornerShape(16.dp),
+        elevation = CardDefaults.cardElevation(defaultElevation = 1.dp),
+        modifier = modifier.fillMaxWidth()
+    ) {
+        Column(Modifier.padding(16.dp)) {
+            Text("PERFIL DE CONSUMO POR HORA", style = MaterialTheme.typography.labelSmall, color = colors.textLow)
+            Text(
+                "Toca una barra para ver el consumo exacto de esa hora.",
+                style = MaterialTheme.typography.bodySmall,
+                color = colors.textMid,
+                modifier = Modifier.padding(top = 4.dp, bottom = 4.dp)
+            )
+
+            val zone = ZoneId.systemDefault()
+            val byHour = computeConsumptionByHourOfDay(readings, zone)
+
+            if (byHour.isEmpty()) {
+                Text(
+                    "No hay suficiente historial registrado en este periodo.\nEl historial se acumula localmente mientras la app monitorea.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = colors.textMid,
+                    modifier = Modifier.padding(top = 24.dp, bottom = 24.dp)
+                )
+                return@Column
+            }
+
+            val peakHour = byHour.maxByOrNull { it.value }
+            if (peakHour != null) {
+                val startAmpm = if (peakHour.key < 12) "am" else "pm"
+                val startHour = if (peakHour.key % 12 == 0) 12 else peakHour.key % 12
+                val nextHour = (peakHour.key + 1) % 24
+                val endAmpm = if (nextHour < 12) "am" else "pm"
+                val endHour = if (nextHour % 12 == 0) 12 else nextHour % 12
+                
+                Row(
+                    modifier = Modifier.fillMaxWidth().padding(top = 10.dp),
+                    horizontalArrangement = Arrangement.spacedBy(10.dp)
+                ) {
+                    GenerationStatTile(
+                        label = "Hora de mayor consumo",
+                        value = "%02d%s–%02d%s".format(startHour, startAmpm, endHour, endAmpm),
+                        unit = "",
+                        color = colors.accent,
+                        modifier = Modifier.weight(1f)
+                    )
+                    GenerationStatTile(
+                        label = "Consumo en esa hora",
+                        value = String.format(Locale("es", "ES"), "%.1f", peakHour.value),
+                        unit = "kWh",
+                        color = colors.textMid,
+                        modifier = Modifier.weight(1f)
+                    )
+                }
+            }
+
+            val entries = (0..23).map { hour ->
+                val startAmpm = if (hour < 12) "am" else "pm"
+                val startHour = if (hour % 12 == 0) 12 else hour % 12
+                val nextHour = (hour + 1) % 24
+                val endAmpm = if (nextHour < 12) "am" else "pm"
+                val endHour = if (nextHour % 12 == 0) 12 else nextHour % 12
+                
+                BarChartEntry(label = "%02d%s–%02d%s".format(startHour, startAmpm, endHour, endAmpm), value = (byHour[hour] ?: 0.0).toFloat())
+            }
+            DailyBarChart(
+                entries = entries,
+                barColor = MaterialTheme.colorScheme.secondary,
+                gridColor = colors.hairline,
+                textColor = colors.textLow,
+                valueFormatter = { "%.2f kWh".format(it) },
+                modifier = Modifier.padding(top = 16.dp)
+            )
+
+            Row(
+                modifier = Modifier.fillMaxWidth().padding(top = 4.dp),
+                horizontalArrangement = Arrangement.SpaceBetween
+            ) {
+                for (hour in 0..23 step 4) {
+                    val ampm = if (hour < 12) "am" else "pm"
+                    val displayHour = if (hour % 12 == 0) 12 else hour % 12
+                    Text(
+                        "%02d:00%s".format(displayHour, ampm),
+                        style = MaterialTheme.typography.labelSmall,
+                        color = colors.textLow
+                    )
+                }
+            }
+        }
+    }
+}
+
+/**
+ * Perfil de consumo por hora del día (0-23) — suma el consumo de cada
+ * franja horaria a través de TODOS los días del periodo filtrado (ej. en
+ * un rango de 7 días, la barra de "14:00-15:00" acumula el consumo de esa
+ * hora en los 7 días), siguiendo el mismo patrón de perfil horario que
+ * usan las distribuidoras eléctricas para identificar horas pico/valle —
+ * más útil que solo mostrar un día suelto cuando el rango es más amplio.
+ */
+private fun computeConsumptionByHourOfDay(
+    readings: List<PowerReadingEntity>,
+    zone: ZoneId
+): Map<Int, Double> {
+    val sorted = readings
+        .filter { it.loadEnergyTodayKwh != null }
+        .sortedBy { it.timestampEpochMillis }
+
+    val result = mutableMapOf<Int, Double>()
+    for (i in 0 until sorted.size - 1) {
+        val current = sorted[i]
+        val next = sorted[i + 1]
+        val delta = next.loadEnergyTodayKwh!! - current.loadEnergyTodayKwh!!
+        // Delta negativo = cruzó medianoche y el contador del inversor se
+        // reinició a 0 — se descarta el intervalo en vez de restar
+        // energía inexistente (mismo criterio que computeConsumptionByDayAndSource).
+        if (delta <= 0) continue
+        val hour = Instant.ofEpochMilli(current.timestampEpochMillis).atZone(zone).hour
+        result[hour] = (result[hour] ?: 0.0) + delta
+    }
+    return result
 }
 
 /** Consumo del día, separado por fuente (red vs batería) — se calculan

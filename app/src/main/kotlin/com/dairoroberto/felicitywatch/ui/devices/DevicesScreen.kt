@@ -139,6 +139,12 @@ private fun PlantDetailCard(plant: PlantInfo, inverterReading: InverterReading?)
     val colors = LocalFelicityColors.current
     val online = plant.devices.any { it.status != null }
     val pvPower = inverterReading?.pvPowerWatts
+    // Dirección tal cual la trae Felicity ("plantAddress" del snapshot) —
+    // solo aparece si el propio usuario la configuró desde la web/app
+    // oficial de Felicity, no es editable desde Felicity Watch. Si no vino,
+    // se omite la fila (mismo criterio que tipo de planta/fecha de
+    // instalación) en vez de mostrar un "—" para un dato que no existe.
+    val address = inverterReading?.plantAddress?.takeIf { it.isNotBlank() }
 
     Card(
         colors = CardDefaults.cardColors(containerColor = colors.surface2),
@@ -183,6 +189,9 @@ private fun PlantDetailCard(plant: PlantInfo, inverterReading: InverterReading?)
 
             DeviceDetailRow(label = "Propietario", value = plant.ownerName ?: "—")
             DeviceDetailRow(label = "País", value = plant.countryName ?: "—")
+            if (address != null) {
+                DeviceDetailRow(label = "Dirección", value = address)
+            }
             DeviceDetailRow(
                 label = "Potencia FV (en vivo)",
                 value = pvPower?.let { formatWatts(it) } ?: "—",

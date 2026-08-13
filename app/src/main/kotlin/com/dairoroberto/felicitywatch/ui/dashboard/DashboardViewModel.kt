@@ -4,7 +4,9 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.dairoroberto.felicitywatch.data.local.AlertEventEntity
 import com.dairoroberto.felicitywatch.data.local.CredentialsStore
+import com.dairoroberto.felicitywatch.data.local.PowerReadingEntity
 import com.dairoroberto.felicitywatch.data.repository.AlertEventRepository
+import com.dairoroberto.felicitywatch.data.repository.PowerHistoryRepository
 import com.dairoroberto.felicitywatch.domain.model.BatteryReading
 import com.dairoroberto.felicitywatch.domain.model.GridState
 import com.dairoroberto.felicitywatch.domain.model.InverterReading
@@ -38,7 +40,14 @@ data class DashboardUiState(
     val pushConfigured: Boolean = false,
     val whatsappConfigured: Boolean = false,
     val inverterError: String? = null,
-    val batteryError: String? = null
+    val batteryError: String? = null,
+    /** Historial de 30 días sin acotar por rango — misma fuente que usa el
+     * Reporte (pestaña Corriente) para calcular "lleva X tiempo", así el
+     * Panel nunca puede mostrar un número distinto al del Reporte (antes
+     * el Panel usaba lastGridChangeAt, que solo se actualiza cuando una
+     * regla de alerta se dispara y podía quedar desfasado del historial
+     * real). */
+    val allReadingsLast30Days: List<PowerReadingEntity> = emptyList()
 ) {
     val connectionHealthy: Boolean get() = consecutiveFailures == 0 && lastError == null
 }
@@ -67,6 +76,7 @@ class DashboardViewModel @Inject constructor(
     private val runMonitoringCycleUseCase: RunMonitoringCycleUseCase,
     alertEventRepository: AlertEventRepository,
     private val credentialsStore: CredentialsStore,
+    private val powerHistoryRepository: PowerHistoryRepository,
     @ApplicationContext private val context: android.content.Context
 ) : ViewModel() {
 
@@ -119,7 +129,11 @@ class DashboardViewModel @Inject constructor(
         StatusSnapshot(running, error, failures, lastOk, events.firstOrNull())
     }
 
-    val uiState: StateFlow<DashboardUiState> = combine(readingsFlow, statusFlow) { readings, status ->
+    val uiState: StateFlow<DashboardUiState> = combine(
+        readingsFlow,
+        statusFlow,
+        powerHistoryRepository.observeLast30Days()
+    ) { readings, status, historyLast30Days ->
         DashboardUiState(
             liveGridState = readings.liveGridState,
             confirmedGridState = readings.confirmedGridState,
@@ -135,7 +149,8 @@ class DashboardViewModel @Inject constructor(
             pushConfigured = NotificationChannels.areNotificationsEnabled(context),
             whatsappConfigured = credentialsStore.hasWhatsappConfig(),
             inverterError = readings.inverterError,
-            batteryError = readings.batteryError
+            batteryError = readings.batteryError,
+            allReadingsLast30Days = historyLast30Days
         )
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), DashboardUiState())
 

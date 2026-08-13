@@ -13,3 +13,6 @@ captures/
 *.apk
 *.ap_
 *.dex
+
+# Logs temporales de build
+build_error.txt

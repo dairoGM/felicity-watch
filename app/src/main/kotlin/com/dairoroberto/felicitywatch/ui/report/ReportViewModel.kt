@@ -50,6 +50,13 @@ class ReportViewModel @Inject constructor(
         }
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
+    /** Para las pestañas "Estadísticas" y "Ambiental" (grupo Impacto) —
+     * independiente del filtro de fecha de arriba, siempre muestran
+     * Hoy/7 días/30 días (las únicas ventanas que el historial local de
+     * 30 días puede calcular con precisión real). */
+    val allReadingsLast30Days: StateFlow<List<PowerReadingEntity>> = repository.observeLast30Days()
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+
     fun setToday() {
         _dateRange.value = DateRange(today, today)
     }
