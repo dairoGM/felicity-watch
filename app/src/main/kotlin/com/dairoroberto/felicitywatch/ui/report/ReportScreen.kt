@@ -67,11 +67,11 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
-import com.dairoroberto.felicitywatch.ui.components.BarChartEntry
 import com.dairoroberto.felicitywatch.ui.components.ChartPoint
 import com.dairoroberto.felicitywatch.ui.components.ChartSeries
 import com.dairoroberto.felicitywatch.ui.components.ChartZoomState
-import com.dairoroberto.felicitywatch.ui.components.DailyBarChart
+import com.dairoroberto.felicitywatch.ui.components.HorizontalBarEntry
+import com.dairoroberto.felicitywatch.ui.components.HorizontalBarList
 import com.dairoroberto.felicitywatch.ui.components.LineAreaChart
 import com.dairoroberto.felicitywatch.ui.components.MultiLineChart
 import com.dairoroberto.felicitywatch.ui.components.NiceAxis
@@ -1524,33 +1524,97 @@ private fun DailyGenerationReportCard(
                             }
                         }
 
-                        val dayFormatter = DateTimeFormatter.ofPattern("d MMM").withLocale(Locale("es", "ES"))
-                        val entries = dailyTotals.map { (date, kwh) ->
-                            BarChartEntry(label = dayFormatter.format(date), value = kwh.toFloat())
-                        }
-                        DailyBarChart(
-                            entries = entries,
-                            barColor = colors.accent,
-                            gridColor = colors.hairline,
-                            textColor = colors.textLow,
-                            valueFormatter = { "%.1f kWh".format(it) },
-                            modifier = Modifier.padding(top = 16.dp)
-                        )
+                        // Un solo día en el rango: una barra solitaria no
+                        // aporta nada (es el mismo número que ya está en
+                        // "Total del periodo"). Se muestra la CURVA de
+                        // potencia PV del día, que sí revela cómo se
+                        // comportó el sol hora a hora.
+                        if (dailyTotals.size == 1) {
+                            val dayPoints = readings
+                                .filter { it.pvPowerWatts != null }
+                                .sortedBy { it.timestampEpochMillis }
+                                .map { r ->
+                                    val zoned = Instant.ofEpochMilli(r.timestampEpochMillis).atZone(zone)
+                                    val hourOfDay = zoned.hour + zoned.minute / 60f
+                                    ChartPoint(hourOfDay, r.pvPowerWatts!!.toFloat())
+                                }
 
-                        val labelStep = (entries.size / 6).coerceAtLeast(1)
-                        Row(
-                            modifier = Modifier.fillMaxWidth().padding(top = 4.dp),
-                            horizontalArrangement = Arrangement.SpaceBetween
-                        ) {
-                            entries.forEachIndexed { index, entry ->
-                                if (index % labelStep == 0) {
-                                    Text(
-                                        entry.label,
-                                        style = MaterialTheme.typography.labelSmall,
-                                        color = colors.textLow
+                            if (dayPoints.size < 2) {
+                                Text(
+                                    "Aún no hay suficientes lecturas del día para dibujar la curva.",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = colors.textMid,
+                                    modifier = Modifier.padding(top = 20.dp, bottom = 20.dp)
+                                )
+                            } else {
+                                Text(
+                                    "POTENCIA FV DURANTE EL DÍA",
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = colors.textLow,
+                                    modifier = Modifier.padding(top = 16.dp)
+                                )
+                                val maxW = dayPoints.maxOf { it.y }.coerceAtLeast(1f)
+                                val pvAxis = niceAxis(0f, maxW)
+                                val hourFmt = DateTimeFormatter.ofPattern("hh:mm").withLocale(Locale("es", "ES"))
+                                Box(modifier = Modifier.padding(top = 8.dp)) {
+                                    LineAreaChart(
+                                        points = dayPoints,
+                                        lineColor = colors.accent,
+                                        gridColor = colors.hairline,
+                                        minY = 0f,
+                                        maxYOverride = pvAxis.max,
+                                        minXOverride = 0f,
+                                        maxXOverride = 24f,
+                                        yAxis = pvAxis,
+                                        yUnit = "W",
+                                        textColor = colors.textLow,
+                                        tooltipLabel = { point ->
+                                            val h = point.x.toInt().coerceIn(0, 23)
+                                            val m = ((point.x - h) * 60).toInt().coerceIn(0, 59)
+                                            val zonedLabel = java.time.LocalTime.of(h, m)
+                                            val ampm = if (h < 12) "am" else "pm"
+                                            "${point.y.toInt()} W" to "${hourFmt.format(zonedLabel)}$ampm"
+                                        }
                                     )
                                 }
+                                Row(
+                                    modifier = Modifier.fillMaxWidth().padding(top = 4.dp),
+                                    horizontalArrangement = Arrangement.SpaceBetween
+                                ) {
+                                    for (hour in 0..24 step 4) {
+                                        val h = hour % 24
+                                        val ampm = if (h < 12) "am" else "pm"
+                                        val display = if (h % 12 == 0) 12 else h % 12
+                                        Text(
+                                            "%02d%s".format(display, ampm),
+                                            style = MaterialTheme.typography.labelSmall,
+                                            color = colors.textLow
+                                        )
+                                    }
+                                }
                             }
+                        } else {
+                            // Varios días: lista horizontal con la fecha de
+                            // cada día siempre visible (mismo criterio que la
+                            // vista Mensual).
+                            val dayFormatter = DateTimeFormatter.ofPattern("d MMM").withLocale(Locale("es", "ES"))
+                            val barEntries = dailyTotals.map { (date, kwh) ->
+                                HorizontalBarEntry(
+                                    label = dayFormatter.format(date),
+                                    value = kwh.toFloat(),
+                                    highlighted = bestDay != null && date == bestDay.key
+                                )
+                            }
+                            HorizontalBarList(
+                                entries = barEntries,
+                                barColor = colors.accent,
+                                trackColor = colors.hairline.copy(alpha = 0.4f),
+                                labelColor = colors.textMid,
+                                valueColor = colors.textHi,
+                                labelWidth = 52.dp,
+                                valueFormatter = { "%.1f kWh".format(it) },
+                                modifier = Modifier.padding(top = 16.dp)
+                            )
                         }
                     }
                 }
@@ -1650,38 +1714,30 @@ private fun DailyGenerationReportCard(
                             }
                         }
 
-                        // Barra por cada día del mes (incluye días sin datos con 0)
-                        val dayFormatter = DateTimeFormatter.ofPattern("d").withLocale(Locale("es", "ES"))
-                        val entries = (1..selectedMonth.lengthOfMonth()).map { day ->
+                        // Lista de barras HORIZONTALES, una fila por cada día
+                        // del mes — en vertical solo caben ~6 etiquetas en el
+                        // eje X ("1 6 11 16"), así que era imposible saber a
+                        // qué día correspondía cada barra. Aquí cada día
+                        // lleva su número y su valor en kWh siempre visibles.
+                        val dayFormatter = DateTimeFormatter.ofPattern("d MMM").withLocale(Locale("es", "ES"))
+                        val barEntries = (1..selectedMonth.lengthOfMonth()).map { day ->
                             val date = selectedMonth.atDay(day)
                             val kwh = dailyTotals[date] ?: 0.0
-                            BarChartEntry(label = dayFormatter.format(date), value = kwh.toFloat())
+                            HorizontalBarEntry(
+                                label = day.toString(),
+                                value = kwh.toFloat(),
+                                highlighted = bestDay != null && date == bestDay.key
+                            )
                         }
-                        DailyBarChart(
-                            entries = entries,
+                        HorizontalBarList(
+                            entries = barEntries,
                             barColor = colors.accent,
-                            gridColor = colors.hairline,
-                            textColor = colors.textLow,
+                            trackColor = colors.hairline.copy(alpha = 0.4f),
+                            labelColor = colors.textMid,
+                            valueColor = colors.textHi,
                             valueFormatter = { "%.1f kWh".format(it) },
                             modifier = Modifier.padding(top = 16.dp)
                         )
-
-                        // Etiquetas de día cada ~5 días
-                        val labelStep = (entries.size / 6).coerceAtLeast(1)
-                        Row(
-                            modifier = Modifier.fillMaxWidth().padding(top = 4.dp),
-                            horizontalArrangement = Arrangement.SpaceBetween
-                        ) {
-                            entries.forEachIndexed { index, entry ->
-                                if (index % labelStep == 0) {
-                                    Text(
-                                        entry.label,
-                                        style = MaterialTheme.typography.labelSmall,
-                                        color = colors.textLow
-                                    )
-                                }
-                            }
-                        }
                     }
                 }
             }

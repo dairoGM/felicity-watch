@@ -27,12 +27,17 @@ import javax.inject.Inject
 /**
  * Foreground Service tipo dataSync (guía sección 6). Android mata procesos
  * en background agresivamente (Xiaomi/MIUI confirmado como entorno real del
- * usuario); esta es la única forma confiable de garantizar polling continuo
- * cada 30s. WorkManager actúa como respaldo (ver [ServiceWatchdogWorker]).
+ * usuario); esta es la única forma confiable de garantizar polling continuo.
+ * WorkManager actúa como respaldo (ver [ServiceWatchdogWorker]).
  *
  * El ciclo de lectura en sí vive en [RunMonitoringCycleUseCase], compartido
  * con las lecturas manuales (Panel/Ajustes); este servicio solo se encarga
- * de la cadencia de 30s, contar fallos consecutivos y la notificación.
+ * de la cadencia, contar fallos consecutivos y la notificación.
+ *
+ * La cadencia es la que el usuario elija en Ajustes (ver
+ * AppPreferences.pollingIntervalSeconds; 30s es solo el valor inicial): se
+ * relee en CADA vuelta del bucle, así que un cambio en Ajustes se aplica a
+ * partir de la lectura siguiente sin reiniciar el servicio.
  */
 @AndroidEntryPoint
 class MonitoringForegroundService : Service() {

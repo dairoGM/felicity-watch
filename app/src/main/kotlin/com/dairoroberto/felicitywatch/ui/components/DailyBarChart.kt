@@ -33,14 +33,23 @@ fun DailyBarChart(
     gridColor: Color,
     textColor: Color,
     modifier: Modifier = Modifier,
-    valueFormatter: (Float) -> String = { "%.1f".format(it) }
+    valueFormatter: (Float) -> String = { "%.1f".format(it) },
+    /** Máximo del eje Y forzado — necesario cuando dos gráficos se muestran
+     * lado a lado y deben ser comparables visualmente (ej. Con Red vs Sin
+     * Red en el reporte de Consumo). Sin esto cada gráfico normaliza a su
+     * propio máximo y una barra de 6.9 kWh se ve igual de alta que otra de
+     * 9.2 kWh, dando una comparación falsa. */
+    maxValueOverride: Float? = null,
+    /** Alto del gráfico — configurable para vistas compactas (ej. dos
+     * gráficos lado a lado) sin tocar el resto de reportes. */
+    chartHeight: androidx.compose.ui.unit.Dp = 200.dp
 ) {
     var selectedIndex by remember(entries) { mutableStateOf<Int?>(null) }
 
     Canvas(
         modifier = modifier
             .fillMaxWidth()
-            .height(200.dp)
+            .height(chartHeight)
             .pointerInput(entries) {
                 detectTapGestures { offset ->
                     if (entries.isEmpty()) return@detectTapGestures
@@ -52,7 +61,7 @@ fun DailyBarChart(
     ) {
         if (entries.isEmpty()) return@Canvas
 
-        val maxValue = entries.maxOf { it.value }.coerceAtLeast(0.01f)
+        val maxValue = (maxValueOverride ?: entries.maxOf { it.value }).coerceAtLeast(0.01f)
         val dashEffect = androidx.compose.ui.graphics.PathEffect.dashPathEffect(floatArrayOf(6f, 8f))
         val gridLines = 4
         for (i in 0..gridLines) {

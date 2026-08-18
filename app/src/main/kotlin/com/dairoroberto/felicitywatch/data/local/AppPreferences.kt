@@ -31,6 +31,27 @@ class AppPreferences @Inject constructor(@ApplicationContext private val context
         context.dataStore.edit { it[KEY_POLLING_INTERVAL_SECONDS] = seconds }
     }
 
+    /** Avisar (vibración + sonido) cuando se detecta que un equipo del
+     * inventario se encendió o apagó. Apagado por defecto: el aviso depende
+     * de una detección heurística y de cuándo Felicity publica el dato, así
+     * que conviene que el usuario lo active a conciencia. */
+    val applianceAlertsEnabled: Flow<Boolean> = context.dataStore.data
+        .map { it[KEY_APPLIANCE_ALERTS_ENABLED] ?: false }
+
+    suspend fun setApplianceAlertsEnabled(enabled: Boolean) {
+        context.dataStore.edit { it[KEY_APPLIANCE_ALERTS_ENABLED] = enabled }
+    }
+
+    /** Salto mínimo de consumo (W) para considerar que algo se encendió o
+     * apagó. Configurable porque el valor útil depende de la casa: subirlo
+     * evita avisos por equipos chicos y por el compresor de la nevera. */
+    val applianceAlertThresholdWatts: Flow<Int> = context.dataStore.data
+        .map { it[KEY_APPLIANCE_ALERT_THRESHOLD_WATTS] ?: DEFAULT_APPLIANCE_ALERT_THRESHOLD_WATTS }
+
+    suspend fun setApplianceAlertThresholdWatts(watts: Int) {
+        context.dataStore.edit { it[KEY_APPLIANCE_ALERT_THRESHOLD_WATTS] = watts }
+    }
+
     suspend fun setLastReadingNow(epochMillis: Long) {
         context.dataStore.edit { it[KEY_LAST_READING_MILLIS] = epochMillis }
     }
@@ -53,5 +74,30 @@ class AppPreferences @Inject constructor(@ApplicationContext private val context
         private val KEY_DARK_MODE = booleanPreferencesKey("dark_mode_enabled")
         private val KEY_POLLING_INTERVAL_SECONDS = intPreferencesKey("polling_interval_seconds")
         const val DEFAULT_POLLING_INTERVAL_SECONDS = 30
+
+        /** Presets ofrecidos en Ajustes; fuera de estos el usuario escribe el
+         * intervalo que quiera (ver MIN/MAX). */
+        val POLLING_INTERVAL_PRESETS = listOf(5, 10, 15, 30)
+
+        /** Mínimo de 5 s: por debajo se consulta a Felicity varias veces por
+         * cada dato nuevo que el inversor publica, gastando batería y datos
+         * sin ganar información. Máximo de 1 hora. */
+        const val MIN_POLLING_INTERVAL_SECONDS = 5
+        const val MAX_POLLING_INTERVAL_SECONDS = 3_600
+
+        private val KEY_APPLIANCE_ALERTS_ENABLED = booleanPreferencesKey("appliance_alerts_enabled")
+        private val KEY_APPLIANCE_ALERT_THRESHOLD_WATTS =
+            intPreferencesKey("appliance_alert_threshold_watts")
+
+        /** Mismo umbral que usa la bitácora de Actividad, para que lo que
+         * avisa y lo que se lista coincidan mientras no se cambie. */
+        const val DEFAULT_APPLIANCE_ALERT_THRESHOLD_WATTS = 400
+
+        /** Presets ofrecidos en Ajustes; fuera de estos el usuario escribe el
+         * valor que quiera (ver MIN/MAX). */
+        val APPLIANCE_ALERT_THRESHOLD_PRESETS = listOf(400, 500, 800)
+
+        const val MIN_APPLIANCE_ALERT_THRESHOLD_WATTS = 50
+        const val MAX_APPLIANCE_ALERT_THRESHOLD_WATTS = 10_000
     }
 }

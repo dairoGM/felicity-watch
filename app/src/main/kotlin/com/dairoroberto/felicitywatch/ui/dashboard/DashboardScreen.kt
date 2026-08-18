@@ -1,9 +1,13 @@
 package com.dairoroberto.felicitywatch.ui.dashboard
 
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.IntrinsicSize
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxHeight
@@ -24,9 +28,11 @@ import androidx.compose.material.icons.filled.Error
 import androidx.compose.material.icons.filled.Phone
 import androidx.compose.material.icons.filled.Notifications
 import androidx.compose.material.icons.filled.Chat
+import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Schedule
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
@@ -43,6 +49,7 @@ import kotlinx.coroutines.delay
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
@@ -76,10 +83,14 @@ import java.util.Locale
 fun DashboardScreen(viewModel: DashboardViewModel = hiltViewModel()) {
     val state by viewModel.uiState.collectAsState()
     val isRefreshing by viewModel.isRefreshing.collectAsState()
+    val pollingIntervalSeconds by viewModel.pollingIntervalSeconds.collectAsState()
 
     // Tick cada segundo: alimenta tanto el reloj en vivo del Panel como los
     // textos "hace X min", que de lo contrario quedarían congelados hasta
     // la próxima lectura real aunque el tiempo transcurrido sí cambie.
+    // Metrica cuyo detalle se esta mostrando; null = ningun modal abierto.
+    var metricDetail by remember { mutableStateOf<MetricDetail?>(null) }
+
     var now by remember { mutableStateOf(Instant.now()) }
     LaunchedEffect(Unit) {
         while (true) {
@@ -99,6 +110,14 @@ fun DashboardScreen(viewModel: DashboardViewModel = hiltViewModel()) {
         }
     }
 
+    metricDetail?.let { detail ->
+        MetricDetailDialog(
+            detail = detail,
+            readings = state.allReadingsLast30Days,
+            onDismiss = { metricDetail = null }
+        )
+    }
+
     PullToRefreshBox(
         isRefreshing = isRefreshing,
         onRefresh = { viewModel.refreshNow() },
@@ -109,9 +128,9 @@ fun DashboardScreen(viewModel: DashboardViewModel = hiltViewModel()) {
             contentPadding = PaddingValues(16.dp),
             verticalArrangement = Arrangement.spacedBy(14.dp)
         ) {
-            item { ClockAndConnectionRow(state, now) }
+            item { ClockAndConnectionRow(state, now, pollingIntervalSeconds) }
             item { GridHeroCard(state, now) }
-            item { MetricsRow(state, now) }
+            item { MetricsRow(state, now) { detail -> metricDetail = detail } }
             // Autonomía (anillo) y Excedente Solar (dos barras PV/Consumo)
             // lado a lado — el segundo reemplaza al antiguo anillo de "Carga
             // completa/Descarga", que duplicaba las mismas horas que ya
@@ -125,7 +144,11 @@ fun DashboardScreen(viewModel: DashboardViewModel = hiltViewModel()) {
 }
 
 @Composable
-private fun ClockAndConnectionRow(state: DashboardUiState, now: Instant) {
+private fun ClockAndConnectionRow(
+    state: DashboardUiState,
+    now: Instant,
+    pollingIntervalSeconds: Int
+) {
     val colors = LocalFelicityColors.current
     val healthy = state.connectionHealthy
     val timeFormatter = remember { DateTimeFormatter.ofPattern("HH:mm:ss") }
@@ -158,14 +181,50 @@ private fun ClockAndConnectionRow(state: DashboardUiState, now: Instant) {
                         color = colors.textHi,
                         fontWeight = FontWeight.Bold
                     )
-                    Text(
-                        connectionSubtitle(state, now),
-                        style = MaterialTheme.typography.labelSmall,
-                        color = colors.textMid,
-                        maxLines = 1
-                    )
+                    val lastReadingAt = state.lastSuccessfulReadingAt
+                    if (state.connectionHealthy && lastReadingAt != null) {
+                        Text(
+                            "Última lectura ${exactReadingTime(lastReadingAt)}",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = colors.textMid,
+                            maxLines = 1
+                        )
+                    } else {
+                        Text(
+                            connectionSubtitle(state, now),
+                            style = MaterialTheme.typography.labelSmall,
+                            color = colors.textMid,
+                            maxLines = 1
+                        )
+                    }
+                    // Antigüedad del dato en sí, distinta de la de la
+                    // lectura: hace visible el defasaje de la nube.
+                    dataAgeLabel(state, now)?.let { label ->
+                        Text(
+                            label,
+                            style = MaterialTheme.typography.labelSmall,
+                            color = colors.textLow,
+                            maxLines = 1
+                        )
+                    }
                 }
             }
+
+            // Anilla con la cuenta regresiva a la próxima lectura. Ocupa un
+            // ancho fijo, así el resto del card no se mueve al cambiar de
+            // "27" a "9".
+            val lastReadingAt = state.lastSuccessfulReadingAt
+            val remaining = if (healthy) {
+                secondsUntilNextReading(lastReadingAt, now, pollingIntervalSeconds)
+            } else null
+            if (remaining != null) {
+                NextReadingRing(
+                    remainingSeconds = remaining,
+                    intervalSeconds = pollingIntervalSeconds,
+                    modifier = Modifier.padding(end = 12.dp)
+                )
+            }
+
             Box(
                 Modifier
                     .width(1.dp)
@@ -198,11 +257,131 @@ private fun connectionSubtitle(state: DashboardUiState, now: Instant): String {
     return readingTimestampLabel(lastReadingAt, now)
 }
 
+/**
+ * Antigüedad del DATO, que no es lo mismo que la antigüedad de la lectura.
+ *
+ * "Última lectura" dice cuándo la app le preguntó a Felicity; esto dice de
+ * qué momento es el dato que Felicity respondió ("dataTimeStr" del
+ * snapshot). Entre los dos está el defasaje real: el inversor sube sus
+ * datos a la nube cada cierto tiempo, así que incluso una lectura recién
+ * hecha puede traer un valor de varios minutos antes. Sin este número el
+ * defasaje es invisible y un consumo viejo parece actual.
+ */
+private fun dataAgeLabel(state: DashboardUiState, now: Instant): String? {
+    val reportedAt = state.inverter?.deviceReportedAt ?: return null
+    val secondsAgo = Duration.between(reportedAt, now).seconds
+    // Un dato "del futuro" solo puede venir de un desfase de reloj entre el
+    // inversor y el teléfono; mostrar "hace -40s" confundiría más que ayudar.
+    if (secondsAgo < 0) return null
+
+    val formatter = DateTimeFormatter.ofLocalizedTime(FormatStyle.SHORT).withLocale(Locale("es", "ES"))
+    val time = formatter.format(reportedAt.atZone(ZoneId.systemDefault()))
+    val age = when {
+        secondsAgo < 60 -> "hace ${secondsAgo}s"
+        secondsAgo < 3600 -> "hace ${secondsAgo / 60}min"
+        else -> "hace ${secondsAgo / 3600}h ${(secondsAgo % 3600) / 60}min"
+    }
+    return "Dato del inversor: $time ($age)"
+}
+
 private fun readingTimestampLabel(instant: Instant, now: Instant): String {
     val formatter = DateTimeFormatter.ofLocalizedTime(FormatStyle.SHORT).withLocale(Locale("es", "ES"))
     val time = formatter.format(instant.atZone(ZoneId.systemDefault()))
     val secondsAgo = Duration.between(instant, now).seconds.coerceAtLeast(0)
     return "$time (hace ${secondsAgo}s)"
+}
+
+/**
+ * Cuenta regresiva a la próxima lectura, como anilla que se vacía.
+ *
+ * Va en un tamaño FIJO y no como texto en línea: el texto "Próxima en 27s"
+ * cambia de ancho al bajar a "9s", y eso desplazaba el resto del card en cada
+ * segundo. Un círculo de lado fijo mantiene el layout quieto, y el número
+ * queda centrado dentro sin empujar nada.
+ */
+@Composable
+private fun NextReadingRing(
+    remainingSeconds: Int,
+    intervalSeconds: Int,
+    modifier: Modifier = Modifier
+) {
+    val colors = LocalFelicityColors.current
+    val reading = remainingSeconds <= 0
+    val accent = if (reading) colors.green else colors.accent
+
+    // Fracción que queda por transcurrir. Se anima para que el arco no salte
+    // de un segundo al siguiente.
+    val target = if (intervalSeconds > 0) {
+        (remainingSeconds.toFloat() / intervalSeconds).coerceIn(0f, 1f)
+    } else 0f
+    val progress by animateFloatAsState(
+        targetValue = target,
+        animationSpec = tween(durationMillis = 400),
+        label = "nextReadingProgress"
+    )
+
+    Box(modifier = modifier.size(RING_SIZE), contentAlignment = Alignment.Center) {
+        // Pista de fondo: deja ver el círculo completo aunque quede poco arco.
+        CircularProgressIndicator(
+            progress = { 1f },
+            modifier = Modifier.fillMaxSize(),
+            color = colors.hairline.copy(alpha = 0.45f),
+            strokeWidth = RING_STROKE,
+            trackColor = Color.Transparent
+        )
+        CircularProgressIndicator(
+            progress = { progress },
+            modifier = Modifier.fillMaxSize(),
+            color = accent,
+            strokeWidth = RING_STROKE,
+            trackColor = Color.Transparent
+        )
+        if (reading) {
+            Icon(
+                Icons.Default.Refresh,
+                contentDescription = "Leyendo ahora",
+                tint = accent,
+                modifier = Modifier.size(14.dp)
+            )
+        } else {
+            Text(
+                remainingSeconds.toString(),
+                fontFamily = JetBrainsMonoFamily,
+                fontWeight = FontWeight.Medium,
+                fontSize = 13.sp,
+                color = accent
+            )
+        }
+    }
+}
+
+private val RING_SIZE = 40.dp
+private val RING_STROKE = 3.dp
+
+/** Hora exacta de la última lectura, con segundos. */
+private fun exactReadingTime(instant: Instant): String {
+    val formatter = DateTimeFormatter.ofPattern("hh:mm:ss a").withLocale(Locale("es", "ES"))
+    return formatter.format(instant.atZone(ZoneId.systemDefault()))
+}
+
+/**
+ * Segundos que faltan para la próxima lectura del servicio.
+ *
+ * Es una ESTIMACIÓN: el servicio duerme el intervalo configurado entre
+ * lecturas, así que el momento de la próxima se deduce de la última más el
+ * intervalo. Si una lectura tarda o falla, el conteo llega a 0 y se queda
+ * ahí hasta que entre la siguiente — por eso la UI muestra "ahora…" en vez
+ * de números negativos.
+ */
+private fun secondsUntilNextReading(
+    lastReadingAt: Instant?,
+    now: Instant,
+    intervalSeconds: Int
+): Int? {
+    if (lastReadingAt == null) return null
+    val elapsed = Duration.between(lastReadingAt, now).seconds
+    if (elapsed < 0) return null
+    return (intervalSeconds - elapsed).coerceAtLeast(0L).toInt()
 }
 
 @Composable
@@ -291,12 +470,36 @@ private fun GridHeroCard(state: DashboardUiState, now: Instant) {
                 fontSize = 26.sp,
                 modifier = Modifier.padding(top = 10.dp)
             )
-            Text(
-                gridSinceLabel(lastSegment, online, unknown),
-                style = MaterialTheme.typography.bodySmall,
-                color = colors.textMid,
-                modifier = Modifier.padding(top = 8.dp)
-            )
+            // Sin conexión con Felicity el estado mostrado es el ÚLTIMO
+            // conocido, no una lectura actual — se aclara explícitamente en
+            // vez de afirmar "sin corriente" (que el usuario leía como un
+            // corte real cuando en realidad solo se cayó la comunicación).
+            if (!state.connectionHealthy && !unknown) {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    modifier = Modifier.padding(top = 8.dp)
+                ) {
+                    Icon(
+                        Icons.Default.Error,
+                        contentDescription = null,
+                        tint = colors.textMid,
+                        modifier = Modifier.size(13.dp)
+                    )
+                    Text(
+                        "Sin conexión con Felicity · último estado conocido",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = colors.textMid,
+                        modifier = Modifier.padding(start = 5.dp)
+                    )
+                }
+            } else {
+                Text(
+                    gridSinceLabel(lastSegment, online, unknown),
+                    style = MaterialTheme.typography.bodySmall,
+                    color = colors.textMid,
+                    modifier = Modifier.padding(top = 8.dp)
+                )
+            }
         }
     }
 }
@@ -319,12 +522,24 @@ private fun gridSinceLabel(
 }
 
 @Composable
-private fun MetricsRow(state: DashboardUiState, now: Instant) {
-    Row(horizontalArrangement = Arrangement.spacedBy(10.dp), modifier = Modifier.fillMaxWidth()) {
+private fun MetricsRow(
+    state: DashboardUiState,
+    now: Instant,
+    onOpenDetail: (MetricDetail) -> Unit
+) {
+    // IntrinsicSize.Min + fillMaxHeight en cada card: la fila mide el alto
+    // del contenido más alto y los tres cards lo adoptan, así ninguno queda
+    // más corto que sus vecinos cuando solo uno trae dato extra (ej. el
+    // estimado de carga en Batería).
+    Row(
+        horizontalArrangement = Arrangement.spacedBy(10.dp),
+        modifier = Modifier.fillMaxWidth().height(IntrinsicSize.Min)
+    ) {
         val pvPower = state.inverter?.pvPowerWatts
         MetricCard(
-            modifier = Modifier.weight(1f),
+            modifier = Modifier.weight(1f).fillMaxHeight(),
             label = "GENERACIÓN PV",
+            onClick = { onOpenDetail(MetricDetail.PV) },
             valueText = pvPower?.let { formatPowerValue(it) } ?: "—",
             unit = pvPower?.let { formatPowerUnit(it) } ?: "W",
             errorReason = missingValueReason(
@@ -350,9 +565,16 @@ private fun MetricsRow(state: DashboardUiState, now: Instant) {
             pvPower != null && loadPower != null -> pvPower > loadPower
             else -> null
         }
+        val colors = LocalFelicityColors.current
+        val timeToFullText = solarTimeToFullChargeLabel(state)
+        // Verde solo cuando hay un estimado real de llegar al 100%; los
+        // avisos de excedente insuficiente van en tono neutro para no
+        // leerse como una buena noticia.
+        val timeToFullColor = if (timeToFullText?.endsWith("al 100%") == true) colors.green else colors.textMid
         MetricCard(
-            modifier = Modifier.weight(1f),
+            modifier = Modifier.weight(1f).fillMaxHeight(),
             label = "BATERÍA",
+            onClick = { onOpenDetail(MetricDetail.BATTERY) },
             valueText = state.battery?.socPercent?.toString() ?: "—",
             unit = "%",
             errorReason = missingValueReason(
@@ -362,11 +584,14 @@ private fun MetricsRow(state: DashboardUiState, now: Instant) {
             ),
             lastReadingAt = state.lastSuccessfulReadingAt,
             now = now,
-            chargingIndicator = chargingIndicator
+            chargingIndicator = chargingIndicator,
+            highlightText = timeToFullText,
+            highlightColor = timeToFullColor
         )
         MetricCard(
-            modifier = Modifier.weight(1f),
+            modifier = Modifier.weight(1f).fillMaxHeight(),
             label = "CONSUMO",
+            onClick = { onOpenDetail(MetricDetail.LOAD) },
             valueText = loadPower?.let { formatPowerValue(it) } ?: "—",
             unit = loadPower?.let { formatPowerUnit(it) } ?: "W",
             errorReason = missingValueReason(
@@ -643,6 +868,57 @@ private fun ProjectionCard(
     }
 }
 
+/**
+ * Tiempo estimado para que la batería llegue al 100% cargando SOLO con el
+ * excedente solar (PV menos el consumo de la casa) — pensado para el
+ * escenario sin corriente de red, donde el usuario necesita saber si le va
+ * a alcanzar el sol del día para recargar.
+ *
+ * Fórmula: energía faltante (Wh) / excedente solar (W) = horas.
+ * La energía faltante es capacidadAh × voltaje × (100 − SOC) / 100, misma
+ * base que usa el anillo de Autonomía para el cálculo inverso.
+ *
+ * Devuelve null (no se muestra nada) cuando el estimado no aplica o no es
+ * calculable: con corriente de red (la carga no depende del sol), batería
+ * ya al 100%, sin excedente solar (el PV no cubre ni el consumo, así que
+ * no está cargando), o si falta algún dato del equipo.
+ */
+private fun solarTimeToFullChargeLabel(state: DashboardUiState): String? {
+    if (state.liveGridState != GridState.OFFLINE) return null
+
+    val soc = state.battery?.socPercent ?: return null
+    if (soc >= 100) return null
+
+    val capacityAh = state.battery?.capacityAh ?: return null
+    val voltage = state.battery?.voltage ?: return null
+    if (capacityAh <= 0 || voltage <= 0) return null
+
+    val pvWatts = state.inverter?.pvPowerWatts ?: return null
+    val loadWatts = state.inverter?.loadPowerWatts ?: return null
+    val surplusWatts = pvWatts - loadWatts
+    // Sin excedente el consumo se está comiendo todo el PV: la batería no
+    // carga (o se descarga). Se dice explícitamente en vez de ocultar el
+    // dato, que dejaba al usuario sin saber si era un bug o un estado real.
+    if (surplusWatts <= 0) return "Sin excedente"
+
+    val missingWh = capacityAh * voltage * ((100 - soc) / 100.0)
+    val hoursToFull = missingWh / surplusWatts
+
+    // Con excedentes muy bajos el estimado se dispara a decenas de horas.
+    // El número exacto ahí no significa nada (el sol se va mucho antes),
+    // pero el HECHO de que el excedente no alcanza sí es información
+    // valiosa — así que se comunica de forma cualitativa.
+    if (hoursToFull > 24) return "Carga muy lenta"
+
+    // Texto corto ("2h 39m", no "100% en 2h 39min"): el card es angosto y
+    // con el texto largo se cortaba a media palabra. El ícono de reloj y
+    // la flecha de "cargando" ya dan el contexto de qué representa.
+    val totalMinutes = (hoursToFull * 60).toLong()
+    val hours = totalMinutes / 60
+    val minutes = totalMinutes % 60
+    return if (hours > 0) "${hours}h ${minutes}m al 100%" else "${minutes}m al 100%"
+}
+
 private fun formatPowerValue(watts: Int): String =
     if (watts >= 1000) String.format(Locale("es", "ES"), "%.2f", watts / 1000.0) else watts.toString()
 
@@ -680,11 +956,17 @@ private fun MetricCard(
     now: Instant = Instant.now(),
     /** true = cargando (PV > consumo), false = descargando, null = sin dato
      * suficiente para saberlo (no se muestra ninguna flecha). */
-    chargingIndicator: Boolean? = null
+    chargingIndicator: Boolean? = null,
+    /** Dato derivado destacado bajo el valor principal — ej. en Batería,
+     * el tiempo estimado para llegar al 100% con la carga solar actual. */
+    highlightText: String? = null,
+    highlightColor: androidx.compose.ui.graphics.Color? = null,
+    /** Abre el detalle de la metrica. null = card no interactivo. */
+    onClick: (() -> Unit)? = null
 ) {
     val colors = LocalFelicityColors.current
     Card(
-        modifier = modifier,
+        modifier = if (onClick != null) modifier.clickable(onClick = onClick) else modifier,
         colors = CardDefaults.cardColors(containerColor = colors.surface2),
         shape = RoundedCornerShape(14.dp),
         elevation = CardDefaults.cardElevation(defaultElevation = 1.dp)
@@ -731,6 +1013,35 @@ private fun MetricCard(
                     maxLines = 1
                 )
             }
+            // Dato derivado destacado (ej. "100% en 2h 15min") — va justo
+            // bajo el valor principal para que se lea como parte de la
+            // métrica, no como una nota al pie. El alto se reserva SIEMPRE
+            // (aunque no haya texto) para que los tres cards de la fila
+            // midan exactamente lo mismo y no se descuadren cuando solo
+            // uno tiene dato extra.
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                modifier = Modifier.padding(top = 6.dp).height(14.dp)
+            ) {
+                if (highlightText != null) {
+                    Icon(
+                        Icons.Default.Schedule,
+                        contentDescription = null,
+                        tint = highlightColor ?: colors.textMid,
+                        modifier = Modifier.size(12.dp)
+                    )
+                    Text(
+                        highlightText,
+                        style = MaterialTheme.typography.labelSmall,
+                        fontWeight = FontWeight.SemiBold,
+                        color = highlightColor ?: colors.textMid,
+                        maxLines = 1,
+                        softWrap = false,
+                        overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
+                        modifier = Modifier.padding(start = 3.dp)
+                    )
+                }
+            }
             if (errorReason != null) {
                 Text(
                     errorReason,
@@ -740,10 +1051,15 @@ private fun MetricCard(
                 )
             }
             lastReadingLabel(lastReadingAt, now)?.let { label ->
+                // 2 líneas fijas: el texto envuelve distinto según el ancho
+                // disponible de cada card, y sin esto un card podía quedar
+                // una línea más alto que sus vecinos.
                 Text(
                     label,
                     style = MaterialTheme.typography.labelSmall,
                     color = colors.textLow,
+                    maxLines = 2,
+                    minLines = 2,
                     modifier = Modifier.padding(top = 4.dp)
                 )
             }

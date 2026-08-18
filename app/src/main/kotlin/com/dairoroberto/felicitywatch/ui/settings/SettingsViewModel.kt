@@ -63,6 +63,35 @@ class SettingsViewModel @Inject constructor(
     val pollingIntervalSeconds: StateFlow<Int> = appPreferences.pollingIntervalSeconds
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), AppPreferences.DEFAULT_POLLING_INTERVAL_SECONDS)
 
+    /** Cadencia real medida con que el inversor publica en la nube. */
+    val inverterPublishIntervalSeconds: StateFlow<Int?> = stateHolder.inverterPublishIntervalSeconds
+
+    val applianceAlertsEnabled: StateFlow<Boolean> = appPreferences.applianceAlertsEnabled
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), false)
+
+    val applianceAlertThresholdWatts: StateFlow<Int> = appPreferences.applianceAlertThresholdWatts
+        .stateIn(
+            viewModelScope,
+            SharingStarted.WhileSubscribed(5000),
+            AppPreferences.DEFAULT_APPLIANCE_ALERT_THRESHOLD_WATTS
+        )
+
+    fun setApplianceAlertsEnabled(enabled: Boolean) {
+        viewModelScope.launch { appPreferences.setApplianceAlertsEnabled(enabled) }
+    }
+
+    fun setApplianceAlertThresholdWatts(watts: Int) {
+        viewModelScope.launch {
+            appPreferences.setApplianceAlertThresholdWatts(
+                watts.coerceIn(
+                    AppPreferences.MIN_APPLIANCE_ALERT_THRESHOLD_WATTS,
+                    AppPreferences.MAX_APPLIANCE_ALERT_THRESHOLD_WATTS
+                )
+            )
+        }
+    }
+
+
     private val _isTestingConnection = MutableStateFlow(false)
     val isTestingConnection: StateFlow<Boolean> = _isTestingConnection
 
@@ -112,9 +141,20 @@ class SettingsViewModel @Inject constructor(
     }
 
     fun setPollingIntervalSeconds(seconds: Int) {
+        val clamped = seconds.coerceIn(
+            AppPreferences.MIN_POLLING_INTERVAL_SECONDS,
+            AppPreferences.MAX_POLLING_INTERVAL_SECONDS
+        )
         viewModelScope.launch {
-            appPreferences.setPollingIntervalSeconds(seconds)
-            emit("Frecuencia de consulta actualizada a ${seconds}s")
+            appPreferences.setPollingIntervalSeconds(clamped)
+            val label = if (clamped < 60) {
+                "${clamped}s"
+            } else {
+                val minutes = clamped / 60
+                val remainder = clamped % 60
+                if (remainder == 0) "${minutes}min" else "${minutes}min ${remainder}s"
+            }
+            emit("Frecuencia de consulta actualizada a $label")
         }
     }
 

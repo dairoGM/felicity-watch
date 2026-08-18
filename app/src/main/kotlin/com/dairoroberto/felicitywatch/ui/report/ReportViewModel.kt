@@ -57,6 +57,7 @@ class ReportViewModel @Inject constructor(
     val allReadingsLast30Days: StateFlow<List<PowerReadingEntity>> = repository.observeLast30Days()
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
+
     fun setToday() {
         _dateRange.value = DateRange(today, today)
     }

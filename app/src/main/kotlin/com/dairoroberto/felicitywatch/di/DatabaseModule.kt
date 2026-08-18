@@ -4,7 +4,10 @@ import android.content.Context
 import androidx.room.Room
 import com.dairoroberto.felicitywatch.data.local.AlertEventDao
 import com.dairoroberto.felicitywatch.data.local.AlertRuleDao
+import com.dairoroberto.felicitywatch.data.local.ApplianceDao
 import com.dairoroberto.felicitywatch.data.local.AppDatabase
+import com.dairoroberto.felicitywatch.data.local.DismissedApplianceEventDao
+import com.dairoroberto.felicitywatch.data.local.ImportedBackupDao
 import com.dairoroberto.felicitywatch.data.local.Migrations
 import com.dairoroberto.felicitywatch.data.local.PowerReadingDao
 import com.dairoroberto.felicitywatch.data.local.PushNotificationDao
@@ -40,4 +43,15 @@ object DatabaseModule {
 
     @Provides
     fun providePushNotificationDao(database: AppDatabase): PushNotificationDao = database.pushNotificationDao()
+
+    @Provides
+    fun provideApplianceDao(database: AppDatabase): ApplianceDao = database.applianceDao()
+
+    @Provides
+    fun provideDismissedApplianceEventDao(database: AppDatabase): DismissedApplianceEventDao =
+        database.dismissedApplianceEventDao()
+
+    @Provides
+    fun provideImportedBackupDao(database: AppDatabase): ImportedBackupDao =
+        database.importedBackupDao()
 }

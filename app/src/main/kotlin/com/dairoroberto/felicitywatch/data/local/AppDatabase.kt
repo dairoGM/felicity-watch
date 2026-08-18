@@ -11,9 +11,12 @@ import com.dairoroberto.felicitywatch.domain.model.ComparisonOperator
         PowerReadingEntity::class,
         AlertRuleEntity::class,
         AlertEventEntity::class,
-        PushNotificationEntity::class
+        PushNotificationEntity::class,
+        ApplianceEntity::class,
+        DismissedApplianceEventEntity::class,
+        ImportedBackupEntity::class
     ],
-    version = 7,
+    version = 14,
     exportSchema = true
 )
 @TypeConverters(Converters::class)
@@ -22,6 +25,9 @@ abstract class AppDatabase : RoomDatabase() {
     abstract fun alertEventDao(): AlertEventDao
     abstract fun powerReadingDao(): PowerReadingDao
     abstract fun pushNotificationDao(): PushNotificationDao
+    abstract fun applianceDao(): ApplianceDao
+    abstract fun dismissedApplianceEventDao(): DismissedApplianceEventDao
+    abstract fun importedBackupDao(): ImportedBackupDao
 
     companion object {
         const val DATABASE_NAME = "felicity_watch.db"

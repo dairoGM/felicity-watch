@@ -13,6 +13,9 @@ import androidx.activity.result.contract.ActivityResultContracts
 import androidx.core.content.ContextCompat
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.FlowRow
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
@@ -64,11 +67,15 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
+import com.dairoroberto.felicitywatch.data.local.AppPreferences
 import com.dairoroberto.felicitywatch.ui.alerts.AlertsViewModel
 import com.dairoroberto.felicitywatch.ui.alerts.alertRuleItems
 import com.dairoroberto.felicitywatch.ui.components.ApiKeyField
@@ -344,6 +351,9 @@ private fun LazyListScope.alertsTab(
     }
 }
 
+// FlowRow (chips del umbral) sigue marcada como experimental en Foundation,
+// aunque su API es estable en la práctica desde hace varias versiones.
+@OptIn(ExperimentalLayoutApi::class)
 private fun LazyListScope.systemTab(
     pollingIntervalSeconds: Int,
     serviceRunning: Boolean,
@@ -354,29 +364,257 @@ private fun LazyListScope.systemTab(
     viewModel: SettingsViewModel
 ) {
     item {
+        val colors = LocalFelicityColors.current
+        val publishInterval by viewModel.inverterPublishIntervalSeconds.collectAsState()
+
+        // Intervalo escrito a mano. Igual que en el umbral de avisos, se
+        // guarda solo al confirmar: así no se escribe en preferencias un
+        // valor a medio teclear ("4" mientras se escribe "45").
+        var customInterval by remember { mutableStateOf("") }
+        var customIntervalMode by remember {
+            mutableStateOf(pollingIntervalSeconds !in AppPreferences.POLLING_INTERVAL_PRESETS)
+        }
+
         SectionCard(title = "Frecuencia de consulta") {
             Text(
                 "Cada cuánto se consulta a Felicity para saber si se fue/llegó la corriente o cambió la generación PV. Un intervalo más corto detecta cambios más rápido pero consume más batería y datos.",
                 style = MaterialTheme.typography.bodySmall,
-                color = LocalFelicityColors.current.textMid
+                color = colors.textMid
             )
-            Row(
+            FlowRow(
                 modifier = Modifier
                     .fillMaxWidth()
                     .padding(top = SECTION_CONTENT_SPACING),
-                horizontalArrangement = Arrangement.spacedBy(8.dp)
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                verticalArrangement = Arrangement.spacedBy(8.dp)
             ) {
-                listOf(5, 10, 15, 30, 60).forEach { seconds ->
-                    val label = if (seconds < 60) "${seconds}s" else "${seconds / 60}min"
+                AppPreferences.POLLING_INTERVAL_PRESETS.forEach { seconds ->
                     FilterChip(
-                        selected = pollingIntervalSeconds == seconds,
-                        onClick = { viewModel.setPollingIntervalSeconds(seconds) },
-                        label = { Text(label) },
+                        selected = !customIntervalMode && pollingIntervalSeconds == seconds,
+                        onClick = {
+                            customIntervalMode = false
+                            viewModel.setPollingIntervalSeconds(seconds)
+                        },
+                        label = { Text("${seconds}s") },
                         colors = FilterChipDefaults.filterChipColors(
-                            selectedContainerColor = LocalFelicityColors.current.tealDim
+                            selectedContainerColor = colors.tealDim
                         )
                     )
                 }
+                FilterChip(
+                    selected = customIntervalMode,
+                    onClick = {
+                        customIntervalMode = true
+                        if (customInterval.isBlank()) customInterval = pollingIntervalSeconds.toString()
+                    },
+                    label = { Text("Personalizado") },
+                    colors = FilterChipDefaults.filterChipColors(
+                        selectedContainerColor = colors.tealDim
+                    )
+                )
+            }
+
+            if (customIntervalMode) {
+                val entered = customInterval.toIntOrNull()
+                val outOfRange = entered != null && (
+                    entered < AppPreferences.MIN_POLLING_INTERVAL_SECONDS ||
+                        entered > AppPreferences.MAX_POLLING_INTERVAL_SECONDS
+                    )
+                Row(
+                    verticalAlignment = Alignment.Top,
+                    modifier = Modifier.fillMaxWidth().padding(top = 8.dp)
+                ) {
+                    OutlinedTextField(
+                        value = customInterval,
+                        onValueChange = { input -> customInterval = input.filter { it.isDigit() }.take(4) },
+                        label = { Text("Segundos") },
+                        singleLine = true,
+                        isError = outOfRange,
+                        supportingText = if (outOfRange) {
+                            {
+                                Text(
+                                    "Entre ${AppPreferences.MIN_POLLING_INTERVAL_SECONDS} y " +
+                                        "${AppPreferences.MAX_POLLING_INTERVAL_SECONDS} s"
+                                )
+                            }
+                        } else null,
+                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                        modifier = Modifier.weight(1f)
+                    )
+                    OutlinedButton(
+                        onClick = { entered?.let { viewModel.setPollingIntervalSeconds(it) } },
+                        enabled = entered != null && !outOfRange,
+                        modifier = Modifier.padding(start = 8.dp, top = 8.dp)
+                    ) { Text("Aplicar") }
+                }
+            }
+
+            // La cadencia del inversor es el TECHO de utilidad: consultar más
+            // seguido que eso devuelve el mismo dato repetido. Se muestra
+            // medida y no supuesta, porque depende del equipo de cada casa.
+            if (publishInterval != null) {
+                val publish = publishInterval!!
+                val wasteful = pollingIntervalSeconds < publish
+                Text(
+                    "Tu inversor publica un dato nuevo cada ~${publish}s (medido).",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = colors.textMid,
+                    modifier = Modifier.padding(top = SECTION_CONTENT_SPACING)
+                )
+                if (wasteful) {
+                    Text(
+                        "Estás consultando cada ${pollingIntervalSeconds}s, más seguido de lo que el " +
+                            "inversor publica: esas consultas extra devuelven el mismo dato y solo " +
+                            "gastan batería y datos. Subirlo a ${publish}s o más no te haría perder " +
+                            "información.",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = colors.error,
+                        modifier = Modifier.padding(top = 4.dp)
+                    )
+                }
+            } else {
+                Text(
+                    "La cadencia real del inversor se muestra aquí después de un par de lecturas " +
+                        "con datos nuevos.",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = colors.textLow,
+                    modifier = Modifier.padding(top = SECTION_CONTENT_SPACING)
+                )
+            }
+        }
+    }
+
+    item {
+        val colors = LocalFelicityColors.current
+        val alertsEnabled by viewModel.applianceAlertsEnabled.collectAsState()
+        val threshold by viewModel.applianceAlertThresholdWatts.collectAsState()
+
+        // Valor escrito a mano cuando el usuario elige "Personalizado". Se
+        // guarda solo al confirmar y no en cada tecla, para no escribir en
+        // preferencias con valores a medio teclear ("4" al empezar "450").
+        var customThreshold by remember { mutableStateOf("") }
+        var customMode by remember {
+            mutableStateOf(threshold !in AppPreferences.APPLIANCE_ALERT_THRESHOLD_PRESETS)
+        }
+
+        SectionCard(title = "Aviso de equipos") {
+            Text(
+                "Envía una notificación cuando se detecta que un equipo de tu inventario se conectó " +
+                    "o se desconectó, indicando cuál y el consumo detectado.",
+                style = MaterialTheme.typography.bodySmall,
+                color = colors.textMid
+            )
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                modifier = Modifier.fillMaxWidth().padding(top = SECTION_CONTENT_SPACING)
+            ) {
+                Text(
+                    if (alertsEnabled) "Activado" else "Desactivado",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = if (alertsEnabled) colors.green else colors.textMid,
+                    modifier = Modifier.weight(1f)
+                )
+                Switch(
+                    checked = alertsEnabled,
+                    onCheckedChange = { viewModel.setApplianceAlertsEnabled(it) }
+                )
+            }
+
+            if (alertsEnabled) {
+                Text(
+                    "Salto mínimo de consumo para avisar: $threshold W",
+                    style = MaterialTheme.typography.bodySmall,
+                    fontWeight = FontWeight.Medium,
+                    color = colors.textHi,
+                    modifier = Modifier.padding(top = SECTION_CONTENT_SPACING)
+                )
+                Text(
+                    "Súbelo si recibes avisos de más — el compresor de la nevera es la causa " +
+                        "más común de avisos que no esperabas.",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = colors.textLow
+                )
+                // FlowRow y no Row: los chips no caben en el ancho de un
+                // teléfono y el último quedaba cortado a media palabra. Así
+                // envuelven a la línea siguiente completos.
+                FlowRow(
+                    modifier = Modifier.fillMaxWidth().padding(top = 8.dp),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    verticalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    AppPreferences.APPLIANCE_ALERT_THRESHOLD_PRESETS.forEach { watts ->
+                        FilterChip(
+                            selected = !customMode && threshold == watts,
+                            onClick = {
+                                customMode = false
+                                viewModel.setApplianceAlertThresholdWatts(watts)
+                            },
+                            label = { Text("${watts}W") },
+                            colors = FilterChipDefaults.filterChipColors(
+                                selectedContainerColor = colors.tealDim
+                            )
+                        )
+                    }
+                    FilterChip(
+                        selected = customMode,
+                        onClick = {
+                            customMode = true
+                            if (customThreshold.isBlank()) customThreshold = threshold.toString()
+                        },
+                        label = { Text("Personalizado") },
+                        colors = FilterChipDefaults.filterChipColors(
+                            selectedContainerColor = colors.tealDim
+                        )
+                    )
+                }
+
+                if (customMode) {
+                    val entered = customThreshold.toIntOrNull()
+                    val outOfRange = entered != null && (
+                        entered < AppPreferences.MIN_APPLIANCE_ALERT_THRESHOLD_WATTS ||
+                            entered > AppPreferences.MAX_APPLIANCE_ALERT_THRESHOLD_WATTS
+                        )
+                    Row(
+                        verticalAlignment = Alignment.Top,
+                        modifier = Modifier.fillMaxWidth().padding(top = 8.dp)
+                    ) {
+                        OutlinedTextField(
+                            value = customThreshold,
+                            onValueChange = { input ->
+                                customThreshold = input.filter { it.isDigit() }.take(5)
+                            },
+                            label = { Text("Watts") },
+                            singleLine = true,
+                            isError = outOfRange,
+                            supportingText = if (outOfRange) {
+                                {
+                                    Text(
+                                        "Entre ${AppPreferences.MIN_APPLIANCE_ALERT_THRESHOLD_WATTS} " +
+                                            "y ${AppPreferences.MAX_APPLIANCE_ALERT_THRESHOLD_WATTS} W"
+                                    )
+                                }
+                            } else null,
+                            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                            modifier = Modifier.weight(1f)
+                        )
+                        OutlinedButton(
+                            onClick = {
+                                entered?.let { viewModel.setApplianceAlertThresholdWatts(it) }
+                            },
+                            enabled = entered != null && !outOfRange,
+                            modifier = Modifier.padding(start = 8.dp, top = 8.dp)
+                        ) { Text("Aplicar") }
+                    }
+                }
+
+                Text(
+                    "El aviso llega cuando la app lee el dato, no en el instante exacto del " +
+                        "encendido: depende de la frecuencia de consulta y de cuándo el inversor " +
+                        "publica sus datos. Solo avisa de equipos registrados en tu inventario.",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = colors.textLow,
+                    modifier = Modifier.padding(top = SECTION_CONTENT_SPACING)
+                )
             }
         }
     }

@@ -3,6 +3,7 @@ package com.dairoroberto.felicitywatch.ui.dashboard
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.dairoroberto.felicitywatch.data.local.AlertEventEntity
+import com.dairoroberto.felicitywatch.data.local.AppPreferences
 import com.dairoroberto.felicitywatch.data.local.CredentialsStore
 import com.dairoroberto.felicitywatch.data.local.PowerReadingEntity
 import com.dairoroberto.felicitywatch.data.repository.AlertEventRepository
@@ -77,11 +78,21 @@ class DashboardViewModel @Inject constructor(
     alertEventRepository: AlertEventRepository,
     private val credentialsStore: CredentialsStore,
     private val powerHistoryRepository: PowerHistoryRepository,
+    appPreferences: AppPreferences,
     @ApplicationContext private val context: android.content.Context
 ) : ViewModel() {
 
     private val _isRefreshing = MutableStateFlow(false)
     val isRefreshing: StateFlow<Boolean> = _isRefreshing
+
+    /** Intervalo de consulta vigente, para calcular en el Panel cuánto falta
+     * para la próxima lectura. */
+    val pollingIntervalSeconds: StateFlow<Int> = appPreferences.pollingIntervalSeconds
+        .stateIn(
+            viewModelScope,
+            SharingStarted.WhileSubscribed(5000),
+            AppPreferences.DEFAULT_POLLING_INTERVAL_SECONDS
+        )
 
     private data class GridSnapshot(val live: GridState, val confirmed: GridState, val lastChangeAt: Instant?)
 

@@ -5,6 +5,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Calculate
 import androidx.compose.material.icons.filled.DisplaySettings
+import androidx.compose.material.icons.filled.Kitchen
 import androidx.compose.material.icons.filled.Memory
 import androidx.compose.material.icons.filled.MoreHoriz
 import androidx.compose.material.icons.filled.Settings
@@ -35,6 +36,7 @@ import androidx.navigation.compose.composable
 import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
 import com.dairoroberto.felicitywatch.ui.alerts.AlertsHostScreen
+import com.dairoroberto.felicitywatch.ui.appliances.AppliancesScreen
 import com.dairoroberto.felicitywatch.ui.calculator.BatteryAutonomyCalculatorScreen
 import com.dairoroberto.felicitywatch.ui.dashboard.DashboardScreen
 import com.dairoroberto.felicitywatch.ui.devices.DevicesScreen
@@ -61,6 +63,7 @@ private sealed class MainDestination(val route: String, val label: String, val i
 private sealed class MoreDestination(val route: String) {
     data object Alerts : MoreDestination("alerts")
     data object Calculator : MoreDestination("calculator")
+    data object Appliances : MoreDestination("appliances")
     data object Settings : MoreDestination("settings")
 }
 
@@ -122,6 +125,7 @@ fun FelicityWatchNavHost(
                     MainDestination.More.route,
                     MoreDestination.Alerts.route,
                     MoreDestination.Calculator.route,
+                    MoreDestination.Appliances.route,
                     MoreDestination.Settings.route
                 )
                 bottomDestinations.forEach { destination ->
@@ -176,6 +180,12 @@ fun FelicityWatchNavHost(
                             onClick = { navController.navigate(MoreDestination.Calculator.route) { launchSingleTop = true } }
                         ),
                         MoreMenuItem(
+                            label = "Equipos de la casa",
+                            subtitle = "Registra tus equipos por habitación y ve qué se encendió",
+                            icon = Icons.Default.Kitchen,
+                            onClick = { navController.navigate(MoreDestination.Appliances.route) { launchSingleTop = true } }
+                        ),
+                        MoreMenuItem(
                             label = "Ajustes",
                             subtitle = "Cuenta, tema, polling y diagnóstico",
                             icon = Icons.Default.Settings,
@@ -186,6 +196,7 @@ fun FelicityWatchNavHost(
             }
             composable(MoreDestination.Alerts.route) { AlertsHostScreen() }
             composable(MoreDestination.Calculator.route) { BatteryAutonomyCalculatorScreen() }
+            composable(MoreDestination.Appliances.route) { AppliancesScreen() }
             composable(MoreDestination.Settings.route) {
                 SettingsScreen(
                     darkModeEnabled = darkModeEnabled,

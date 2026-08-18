@@ -18,7 +18,8 @@ import javax.inject.Singleton
  * Un ciclo completo de lectura: obtiene el snapshot, actualiza el estado en
  * vivo que consume la UI, evalúa las reglas de alerta y despacha lo que
  * corresponda. Compartido entre [com.dairoroberto.felicitywatch.service.MonitoringForegroundService]
- * (cada 30s) y las acciones manuales de "primera lectura / probar conexión"
+ * (en la cadencia configurada en Ajustes) y las acciones manuales de
+ * "primera lectura / probar conexión"
  * (Panel al deslizar hacia abajo, botón en Ajustes) para no duplicar la
  * lógica — la única diferencia entre ambos casos es quién cuenta los fallos
  * consecutivos y actualiza la notificación persistente, que se queda en el
@@ -33,7 +34,8 @@ class RunMonitoringCycleUseCase @Inject constructor(
     private val appPreferences: AppPreferences,
     private val credentialsStore: CredentialsStore,
     private val stateHolder: MonitoringStateHolder,
-    private val powerHistoryRepository: PowerHistoryRepository
+    private val powerHistoryRepository: PowerHistoryRepository,
+    private val notifyApplianceChangeUseCase: NotifyApplianceChangeUseCase
 ) {
     suspend fun run(): SystemReading {
         if (!credentialsStore.hasFsolarCredentials()) {
@@ -67,6 +69,16 @@ class RunMonitoringCycleUseCase @Inject constructor(
             loadEnergyTodayKwh = reading.inverter?.loadEnergyTodayKwh,
             now = now
         )
+
+        // Aviso de equipo encendido/apagado. Va después de registrar el
+        // historial y envuelto en try/catch porque es una función accesoria:
+        // si falla (sin vibrador, audio no disponible), el ciclo de
+        // monitoreo debe continuar igual.
+        try {
+            notifyApplianceChangeUseCase.onLoadReading(loadPowerWatts)
+        } catch (e: Exception) {
+            // Ignorado a propósito: no vale perder la lectura por el aviso.
+        }
 
         val enabledRules = alertRuleRepository.getEnabledRules()
         val triggers = evaluateAlertRulesUseCase.evaluate(enabledRules, reading, now)
