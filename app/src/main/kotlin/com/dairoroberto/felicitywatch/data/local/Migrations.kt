@@ -214,6 +214,27 @@ object Migrations {
         }
     }
 
+    /** v14 → v15: agrega la tabla `confirmed_appliance_events`, que guarda qué
+     * equipo confirmó el usuario para cada evento de actividad.
+     *
+     * Hace falta porque los eventos se recalculan desde el historial y su
+     * equipo se atribuye por cercanía de consumo: sin persistir la
+     * confirmación, decir "fue el microondas" no cambiaba la lista — al
+     * siguiente recálculo volvía a proponer el equipo de consumo más parecido.
+     *
+     * Solo CREATE TABLE: no toca nada existente. */
+    val MIGRATION_14_15 = object : Migration(14, 15) {
+        override fun migrate(db: SupportSQLiteDatabase) {
+            db.execSQL(
+                "CREATE TABLE IF NOT EXISTS `confirmed_appliance_events` " +
+                    "(`eventEpochMillis` INTEGER NOT NULL, " +
+                    "`applianceId` INTEGER NOT NULL, " +
+                    "`confirmedAtEpochMillis` INTEGER NOT NULL, " +
+                    "PRIMARY KEY(`eventEpochMillis`))"
+            )
+        }
+    }
+
     val ALL = arrayOf(
         MIGRATION_6_7,
         MIGRATION_7_8,
@@ -222,6 +243,7 @@ object Migrations {
         MIGRATION_10_11,
         MIGRATION_11_12,
         MIGRATION_12_13,
-        MIGRATION_13_14
+        MIGRATION_13_14,
+        MIGRATION_14_15
     )
 }

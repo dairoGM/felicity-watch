@@ -44,11 +44,7 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
-import androidx.compose.material3.SegmentedButton
-import androidx.compose.material3.SegmentedButtonDefaults
-import androidx.compose.material3.SingleChoiceSegmentedButtonRow
 import androidx.compose.material3.Tab
-import androidx.compose.material3.TabRow
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.rememberDatePickerState
@@ -87,9 +83,7 @@ import java.time.format.DateTimeFormatter
 import java.time.format.FormatStyle
 import java.util.Locale
 
-private val ELECTRICAL_TABS = listOf("PV", "Batería", "FV/Carga/Descarga", "Corriente", "Generación", "Consumo")
-private val IMPACT_TABS = listOf("Estadísticas", "Ambiental")
-private val REPORT_GROUPS = listOf("Eléctrico", "Impacto")
+private val ELECTRICAL_TABS = listOf("PV", "Batería", "FV/Carga/Descarga", "Corriente", "Generación", "Consumo", "Franja horaria")
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -97,20 +91,15 @@ fun ReportScreen(viewModel: ReportViewModel = hiltViewModel()) {
     val dateRange by viewModel.dateRange.collectAsState()
     val readings by viewModel.readings.collectAsState()
     val liveGridState by viewModel.liveGridState.collectAsState()
-    val allReadingsLast30Days by viewModel.allReadingsLast30Days.collectAsState()
+    val allReadingsInRetention by viewModel.allReadingsInRetention.collectAsState()
+    val nightWindowStartHour by viewModel.nightWindowStartHour.collectAsState()
+    val nightWindowEndHour by viewModel.nightWindowEndHour.collectAsState()
     val colors = LocalFelicityColors.current
 
     var showStartPicker by remember { mutableStateOf(false) }
     var showEndPicker by remember { mutableStateOf(false) }
     var showPeriodMenu by remember { mutableStateOf(false) }
     var showCustomPickers by remember { mutableStateOf(false) }
-    // Grupo de nivel superior (Eléctrico/Impacto) — separa las 6 pestañas
-    // eléctricas ya existentes de las 2 nuevas de impacto (Estadísticas/
-    // Ambiental) para no saturar una sola fila con 8 pestañas. selectedTab
-    // se reinicia al cambiar de grupo para no quedar apuntando a un índice
-    // que no existe en la fila del otro grupo (ej. índice 4 no existe en
-    // Impacto, que solo tiene 2 pestañas).
-    var selectedGroup by remember { mutableIntStateOf(0) }
     var selectedTab by remember { mutableIntStateOf(0) }
 
     // Igual que en el Panel: "hace X" depende del reloj, no solo de los
@@ -170,7 +159,7 @@ fun ReportScreen(viewModel: ReportViewModel = hiltViewModel()) {
     // contadas. El filtro se sigue mostrando en Corriente por consistencia
     // visual con las demás pestañas, pero elegir una fecha ahí no afecta
     // el feed (que siempre muestra todo el historial disponible).
-    val isCorrienteTab = selectedGroup == 0 && selectedTab == 3
+    val isCorrienteTab = selectedTab == 3
 
     Column(Modifier.fillMaxSize()) {
         run {
@@ -277,33 +266,16 @@ fun ReportScreen(viewModel: ReportViewModel = hiltViewModel()) {
             }
         }
 
-        // Selector de grupo (Eléctrico/Impacto) — TabRow fijo porque son
-        // solo 2 categorías, no necesita scroll horizontal.
-        TabRow(
-            selectedTabIndex = selectedGroup,
-            containerColor = colors.surface2
-        ) {
-            REPORT_GROUPS.forEachIndexed { index, title ->
-                Tab(
-                    selected = selectedGroup == index,
-                    onClick = { selectedGroup = index; selectedTab = 0 },
-                    text = { Text(title, style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.Bold) }
-                )
-            }
-        }
-
         // ScrollableTabRow (no TabRow fijo) porque con nombres largos como
         // "FV/Carga/Descarga" un ancho fijo comprime el texto y lo hace
         // saltar de línea — el scroll horizontal evita ese problema sin
-        // tener que acortar los nombres. Se usa para ambos grupos por
-        // consistencia visual, aunque Impacto solo tenga 2 pestañas.
-        val currentTabs = if (selectedGroup == 0) ELECTRICAL_TABS else IMPACT_TABS
+        // tener que acortar los nombres.
         androidx.compose.material3.ScrollableTabRow(
             selectedTabIndex = selectedTab,
             containerColor = colors.surface2,
             edgePadding = 12.dp
         ) {
-            currentTabs.forEachIndexed { index, title ->
+            ELECTRICAL_TABS.forEachIndexed { index, title ->
                 Tab(
                     selected = selectedTab == index,
                     onClick = { selectedTab = index },
@@ -328,7 +300,7 @@ fun ReportScreen(viewModel: ReportViewModel = hiltViewModel()) {
                 colors = colors,
                 now = now,
                 liveGridState = liveGridState,
-                allReadingsLast30Days = allReadingsLast30Days,
+                allReadingsInRetention = allReadingsInRetention,
                 targetDate = dateRange.start
             )
         } else {
@@ -338,19 +310,21 @@ fun ReportScreen(viewModel: ReportViewModel = hiltViewModel()) {
                     .verticalScroll(rememberScrollState())
                     .padding(16.dp)
             ) {
-                if (selectedGroup == 0) {
-                    when (selectedTab) {
-                        0 -> PvGenerationCard(readings, dateRange, colors, now)
-                        1 -> BatterySocCard(readings, dateRange, colors)
-                        2 -> PvChargeDischargeCard(readings, dateRange, colors)
-                        4 -> DailyGenerationReportCard(readings, dateRange, colors, allReadingsLast30Days)
-                        5 -> GridPoweredConsumptionCard(readings, colors)
-                    }
-                } else {
-                    when (selectedTab) {
-                        0 -> EnergyStatisticsCard(readings, dateRange, colors)
-                        1 -> EnvironmentalImpactCard(readings, dateRange, colors)
-                    }
+                when (selectedTab) {
+                    0 -> PvGenerationCard(readings, dateRange, colors, now)
+                    1 -> BatterySocCard(readings, dateRange, colors)
+                    2 -> PvChargeDischargeCard(readings, dateRange, colors)
+                    4 -> DailyGenerationReportCard(colors, allReadingsInRetention)
+                    5 -> GridPoweredConsumptionCard(readings, dateRange, colors)
+                    6 -> NightConsumptionReportCard(
+                        readings = readings,
+                        allReadingsInRetention = allReadingsInRetention,
+                        startHour = nightWindowStartHour,
+                        endHour = nightWindowEndHour,
+                        onStartHourChange = { viewModel.setNightWindowStartHour(it) },
+                        onEndHourChange = { viewModel.setNightWindowEndHour(it) },
+                        colors = colors
+                    )
                 }
             }
         }
@@ -398,8 +372,20 @@ private fun PvGenerationCard(
                 // Formato 12h ("01:00pm") consistente con el resto de reportes.
                 val tooltipTimeFormatter = DateTimeFormatter.ofPattern("hh:mm").withLocale(Locale("es", "ES"))
                 val zoomState = remember(points) { ChartZoomState() }
-                val baseMinX = 0f
-                val baseMaxX = (endOfDay - startOfDay).toFloat()
+                // El eje arranca/termina donde realmente hay generación (>0W),
+                // no a las 00:00/23:59 fijas — de lo contrario más de medio
+                // gráfico es una línea plana en 0 durante la noche, sin
+                // generación real que mostrar. Se deja un margen de 30 min a
+                // cada lado para que la curva no arranque pegada al borde.
+                val generatingPoints = points.filter { it.y > 0f }
+                val marginMillis = 30 * 60 * 1000f
+                val (baseMinX, baseMaxX) = if (generatingPoints.isNotEmpty()) {
+                    val min = (generatingPoints.minOf { it.x } - marginMillis).coerceAtLeast(0f)
+                    val max = (generatingPoints.maxOf { it.x } + marginMillis).coerceAtMost((endOfDay - startOfDay).toFloat())
+                    min to max
+                } else {
+                    0f to (endOfDay - startOfDay).toFloat()
+                }
                 Box(modifier = Modifier.padding(top = 10.dp)) {
                     LineAreaChart(
                         points = points,
@@ -677,7 +663,7 @@ private enum class GridEventFilter { ALL, OUTAGES, RESTORATIONS }
 /** Formato 12h ("01:00pm" en vez de "13:00") — el patrón "a" de
  * DateTimeFormatter da "PM" en mayúsculas con espacio ("01:00 PM"), así que
  * se arma a mano en minúsculas y sin espacio. */
-private fun format12Hour(hourFormatter: DateTimeFormatter, zoned: java.time.ZonedDateTime): String {
+internal fun format12Hour(hourFormatter: DateTimeFormatter, zoned: java.time.ZonedDateTime): String {
     val suffix = if (zoned.hour < 12) "am" else "pm"
     return "${hourFormatter.format(zoned)}$suffix"
 }
@@ -728,7 +714,7 @@ private fun GridContinuousFeed(
     colors: com.dairoroberto.felicitywatch.ui.theme.FelicitySemanticColors,
     now: Instant,
     liveGridState: com.dairoroberto.felicitywatch.domain.model.GridState,
-    allReadingsLast30Days: List<com.dairoroberto.felicitywatch.data.local.PowerReadingEntity>,
+    allReadingsInRetention: List<com.dairoroberto.felicitywatch.data.local.PowerReadingEntity>,
     targetDate: LocalDate
 ) {
     val zone = ZoneId.systemDefault()
@@ -748,8 +734,8 @@ private fun GridContinuousFeed(
         return
     }
 
-    val segments = remember(allReadingsLast30Days, now) {
-        com.dairoroberto.felicitywatch.domain.usecase.buildGridSegments(allReadingsLast30Days, now.toEpochMilli())
+    val segments = remember(allReadingsInRetention, now) {
+        com.dairoroberto.felicitywatch.domain.usecase.buildGridSegments(allReadingsInRetention, now.toEpochMilli())
     }
 
     if (segments.isEmpty()) {
@@ -1246,194 +1232,22 @@ private fun DaySeparatorRow(
 }
 
 /**
- * Estadísticas de energía PV generada para el periodo seleccionado —
- * ahora responde al filtro de fecha (antes siempre mostraba Hoy/7/30
- * días fijos). Calcula el total del periodo y promedio diario con las
- * lecturas filtradas por el rango de fecha activo.
- */
-@Composable
-private fun EnergyStatisticsCard(
-    readings: List<com.dairoroberto.felicitywatch.data.local.PowerReadingEntity>,
-    dateRange: DateRange,
-    colors: com.dairoroberto.felicitywatch.ui.theme.FelicitySemanticColors
-) {
-    Card(
-        colors = CardDefaults.cardColors(containerColor = colors.surface2),
-        shape = RoundedCornerShape(16.dp),
-        elevation = CardDefaults.cardElevation(defaultElevation = 1.dp),
-        modifier = Modifier.fillMaxWidth()
-    ) {
-        Column(Modifier.padding(16.dp)) {
-            Text(
-                "DATOS ESTADÍSTICOS",
-                style = MaterialTheme.typography.labelSmall,
-                color = colors.textLow
-            )
-
-            val zone = ZoneId.systemDefault()
-            val dailyTotals = readings
-                .filter { it.pvEnergyTodayKwh != null }
-                .groupBy { Instant.ofEpochMilli(it.timestampEpochMillis).atZone(zone).toLocalDate() }
-                .mapValues { (_, dayReadings) -> dayReadings.maxBy { it.timestampEpochMillis }.pvEnergyTodayKwh!! }
-
-            val totalKwh = dailyTotals.values.sum()
-            val daysWithData = dailyTotals.size.coerceAtLeast(1)
-            val averageDailyKwh = totalKwh / daysWithData
-            val bestDay = dailyTotals.maxByOrNull { it.value }
-
-            val dateFormatter = DateTimeFormatter.ofPattern("d 'de' MMMM").withLocale(Locale("es", "ES"))
-            val rangeLabel = if (dateRange.start == dateRange.end) {
-                dateFormatter.format(dateRange.start)
-            } else {
-                "${dateFormatter.format(dateRange.start)} — ${dateFormatter.format(dateRange.end)}"
-            }
-            Text(
-                rangeLabel,
-                style = MaterialTheme.typography.bodySmall,
-                color = colors.textMid,
-                modifier = Modifier.padding(top = 4.dp, bottom = 4.dp)
-            )
-
-            Row(
-                modifier = Modifier.fillMaxWidth().padding(top = 14.dp),
-                horizontalArrangement = Arrangement.spacedBy(10.dp)
-            ) {
-                GenerationStatTile(
-                    label = "Total del periodo",
-                    value = String.format(Locale("es", "ES"), "%.1f", totalKwh),
-                    unit = "kWh",
-                    color = colors.accent,
-                    modifier = Modifier.weight(1f)
-                )
-                GenerationStatTile(
-                    label = "Promedio diario",
-                    value = String.format(Locale("es", "ES"), "%.1f", averageDailyKwh),
-                    unit = "kWh",
-                    color = colors.textMid,
-                    modifier = Modifier.weight(1f)
-                )
-            }
-            if (bestDay != null) {
-                Row(
-                    modifier = Modifier.fillMaxWidth().padding(top = 10.dp),
-                    horizontalArrangement = Arrangement.SpaceBetween
-                ) {
-                    Text(
-                        "Mejor día: ${dateFormatter.format(bestDay.key)}",
-                        style = MaterialTheme.typography.labelSmall,
-                        color = colors.textLow
-                    )
-                    Text(
-                        String.format(Locale("es", "ES"), "%.1f kWh", bestDay.value),
-                        style = MaterialTheme.typography.labelSmall,
-                        fontWeight = FontWeight.Bold,
-                        color = colors.green
-                    )
-                }
-            }
-        }
-    }
-}
-
-/**
- * Impacto ambiental estimado a partir de la energía PV generada en el
- * periodo seleccionado — ahora responde al filtro de fecha (antes
- * siempre usaba solo el total de "hoy"). Felicity no reporta ningún dato
- * ambiental, así que se calcula localmente con factores estándar de
- * conversión (ver [com.dairoroberto.felicitywatch.domain.usecase.computeEnvironmentalImpact]).
- */
-@Composable
-private fun EnvironmentalImpactCard(
-    readings: List<com.dairoroberto.felicitywatch.data.local.PowerReadingEntity>,
-    dateRange: DateRange,
-    colors: com.dairoroberto.felicitywatch.ui.theme.FelicitySemanticColors
-) {
-    Card(
-        colors = CardDefaults.cardColors(containerColor = colors.surface2),
-        shape = RoundedCornerShape(16.dp),
-        elevation = CardDefaults.cardElevation(defaultElevation = 1.dp),
-        modifier = Modifier.fillMaxWidth()
-    ) {
-        Column(Modifier.padding(16.dp)) {
-            Text(
-                "DATOS AMBIENTALES",
-                style = MaterialTheme.typography.labelSmall,
-                color = colors.textLow
-            )
-
-            val zone = ZoneId.systemDefault()
-            val dailyTotals = readings
-                .filter { it.pvEnergyTodayKwh != null }
-                .groupBy { Instant.ofEpochMilli(it.timestampEpochMillis).atZone(zone).toLocalDate() }
-                .mapValues { (_, dayReadings) -> dayReadings.maxBy { it.timestampEpochMillis }.pvEnergyTodayKwh!! }
-            val totalKwh = dailyTotals.values.sum()
-
-            val dateFormatter = DateTimeFormatter.ofPattern("d 'de' MMMM").withLocale(Locale("es", "ES"))
-            val rangeLabel = if (dateRange.start == dateRange.end) {
-                "Estimado con la energía generada el ${dateFormatter.format(dateRange.start)}"
-            } else {
-                "Estimado con la energía generada del ${dateFormatter.format(dateRange.start)} al ${dateFormatter.format(dateRange.end)}"
-            }
-            Text(
-                rangeLabel,
-                style = MaterialTheme.typography.bodySmall,
-                color = colors.textMid,
-                modifier = Modifier.padding(top = 4.dp, bottom = 4.dp)
-            )
-
-            val impact = com.dairoroberto.felicitywatch.domain.usecase.computeEnvironmentalImpact(totalKwh)
-            Row(
-                modifier = Modifier.fillMaxWidth().padding(top = 10.dp),
-                horizontalArrangement = Arrangement.spacedBy(10.dp)
-            ) {
-                GenerationStatTile(
-                    label = "Carbón ahorrado",
-                    value = String.format(Locale("es", "ES"), "%.1f", impact.coalSavedKg),
-                    unit = "Kg",
-                    color = colors.textMid,
-                    modifier = Modifier.weight(1f)
-                )
-                GenerationStatTile(
-                    label = "CO₂ reducido",
-                    value = String.format(Locale("es", "ES"), "%.1f", impact.co2AvoidedKg),
-                    unit = "Kg",
-                    color = colors.green,
-                    modifier = Modifier.weight(1f)
-                )
-                GenerationStatTile(
-                    label = "Árboles equiv.",
-                    value = String.format(Locale("es", "ES"), "%.2f", impact.treesEquivalent),
-                    unit = "árbol",
-                    color = colors.green,
-                    modifier = Modifier.weight(1f)
-                )
-            }
-        }
-    }
-}
-
-private enum class GenerationViewMode { DAILY, MONTHLY }
-
-/**
- * Reporte de generación fotovoltaica — con selector de vista Diaria/Mensual.
- * La vista diaria muestra barras por día del periodo seleccionado (como antes).
- * La vista mensual tiene su propio selector de mes/año con flechas ‹ › y
- * muestra una barra por cada día de ese mes, con promedio diario del mes.
- * Cada barra usa el ÚLTIMO valor de pvEnergyTodayKwh leído ese día (el
- * inversor ya acumula internamente y resetea a medianoche).
+ * Reporte de generación fotovoltaica — vista mensual única (el selector
+ * Diaria/Mensual se quitó: la vista diaria era redundante con la pestaña
+ * "PV", que ya muestra el detalle de cualquier día elegido en el filtro de
+ * arriba). Tiene su propio selector de mes/año con flechas ‹ › y muestra
+ * una barra por cada día de ese mes, con promedio diario del mes. Cada
+ * barra usa el ÚLTIMO valor de pvEnergyTodayKwh leído ese día (el inversor
+ * ya acumula internamente y resetea a medianoche).
  */
 @Composable
 private fun DailyGenerationReportCard(
-    readings: List<com.dairoroberto.felicitywatch.data.local.PowerReadingEntity>,
-    dateRange: DateRange,
     colors: com.dairoroberto.felicitywatch.ui.theme.FelicitySemanticColors,
     /** Historial completo (30 días) sin acotar por el filtro de fecha de
-     * arriba — la vista Mensual tiene su propio selector de mes con flechas
-     * ‹ ›, así que si usara [readings] (ya filtrado, ej. solo "Hoy") al
-     * navegar a un mes anterior no habría ningún dato que mostrar. */
-    allReadingsLast30Days: List<com.dairoroberto.felicitywatch.data.local.PowerReadingEntity>
+     * arriba — esta vista tiene su propio selector de mes con flechas
+     * ‹ ›, independiente del filtro de periodo general. */
+    allReadingsInRetention: List<com.dairoroberto.felicitywatch.data.local.PowerReadingEntity>
 ) {
-    var viewMode by remember { mutableStateOf(GenerationViewMode.DAILY) }
     var selectedMonth by remember { mutableStateOf(YearMonth.now()) }
 
     Card(
@@ -1449,177 +1263,8 @@ private fun DailyGenerationReportCard(
                 color = colors.textLow
             )
 
-            // Selector Diaria / Mensual
-            SingleChoiceSegmentedButtonRow(modifier = Modifier.fillMaxWidth().padding(top = 10.dp)) {
-                SegmentedButton(
-                    selected = viewMode == GenerationViewMode.DAILY,
-                    onClick = { viewMode = GenerationViewMode.DAILY },
-                    shape = SegmentedButtonDefaults.itemShape(index = 0, count = 2)
-                ) { Text("Diaria") }
-                SegmentedButton(
-                    selected = viewMode == GenerationViewMode.MONTHLY,
-                    onClick = { viewMode = GenerationViewMode.MONTHLY },
-                    shape = SegmentedButtonDefaults.itemShape(index = 1, count = 2)
-                ) { Text("Mensual") }
-            }
-
             val zone = ZoneId.systemDefault()
-
-            when (viewMode) {
-                GenerationViewMode.DAILY -> {
-                    val dailyTotals = readings
-                        .filter { it.pvEnergyTodayKwh != null }
-                        .groupBy { Instant.ofEpochMilli(it.timestampEpochMillis).atZone(zone).toLocalDate() }
-                        .mapValues { (_, dayReadings) -> dayReadings.maxBy { it.timestampEpochMillis }.pvEnergyTodayKwh!! }
-                        .toSortedMap()
-
-                    if (dailyTotals.isEmpty()) {
-                        Text(
-                            "No hay suficiente historial registrado en este periodo.\nEl historial se acumula localmente mientras la app monitorea.",
-                            style = MaterialTheme.typography.bodySmall,
-                            color = colors.textMid,
-                            modifier = Modifier.padding(top = 24.dp, bottom = 24.dp)
-                        )
-                    } else {
-                        val total = dailyTotals.values.sum()
-                        val average = total / dailyTotals.size
-                        val bestDay = dailyTotals.maxByOrNull { it.value }
-
-                        Row(
-                            modifier = Modifier.fillMaxWidth().padding(top = 14.dp),
-                            horizontalArrangement = Arrangement.spacedBy(10.dp)
-                        ) {
-                            GenerationStatTile(
-                                label = "Total del periodo",
-                                value = String.format(Locale("es", "ES"), "%.1f", total),
-                                unit = "kWh",
-                                color = colors.accent,
-                                modifier = Modifier.weight(1f)
-                            )
-                            GenerationStatTile(
-                                label = "Promedio diario",
-                                value = String.format(Locale("es", "ES"), "%.1f", average),
-                                unit = "kWh",
-                                color = colors.textMid,
-                                modifier = Modifier.weight(1f)
-                            )
-                        }
-                        if (bestDay != null) {
-                            val bestDayFormatter = DateTimeFormatter.ofPattern("d 'de' MMMM").withLocale(Locale("es", "ES"))
-                            Row(
-                                modifier = Modifier.fillMaxWidth().padding(top = 10.dp),
-                                horizontalArrangement = Arrangement.SpaceBetween
-                            ) {
-                                Text(
-                                    "Mejor día: ${bestDayFormatter.format(bestDay.key)}",
-                                    style = MaterialTheme.typography.labelSmall,
-                                    color = colors.textLow
-                                )
-                                Text(
-                                    String.format(Locale("es", "ES"), "%.1f kWh", bestDay.value),
-                                    style = MaterialTheme.typography.labelSmall,
-                                    fontWeight = FontWeight.Bold,
-                                    color = colors.green
-                                )
-                            }
-                        }
-
-                        // Un solo día en el rango: una barra solitaria no
-                        // aporta nada (es el mismo número que ya está en
-                        // "Total del periodo"). Se muestra la CURVA de
-                        // potencia PV del día, que sí revela cómo se
-                        // comportó el sol hora a hora.
-                        if (dailyTotals.size == 1) {
-                            val dayPoints = readings
-                                .filter { it.pvPowerWatts != null }
-                                .sortedBy { it.timestampEpochMillis }
-                                .map { r ->
-                                    val zoned = Instant.ofEpochMilli(r.timestampEpochMillis).atZone(zone)
-                                    val hourOfDay = zoned.hour + zoned.minute / 60f
-                                    ChartPoint(hourOfDay, r.pvPowerWatts!!.toFloat())
-                                }
-
-                            if (dayPoints.size < 2) {
-                                Text(
-                                    "Aún no hay suficientes lecturas del día para dibujar la curva.",
-                                    style = MaterialTheme.typography.bodySmall,
-                                    color = colors.textMid,
-                                    modifier = Modifier.padding(top = 20.dp, bottom = 20.dp)
-                                )
-                            } else {
-                                Text(
-                                    "POTENCIA FV DURANTE EL DÍA",
-                                    style = MaterialTheme.typography.labelSmall,
-                                    color = colors.textLow,
-                                    modifier = Modifier.padding(top = 16.dp)
-                                )
-                                val maxW = dayPoints.maxOf { it.y }.coerceAtLeast(1f)
-                                val pvAxis = niceAxis(0f, maxW)
-                                val hourFmt = DateTimeFormatter.ofPattern("hh:mm").withLocale(Locale("es", "ES"))
-                                Box(modifier = Modifier.padding(top = 8.dp)) {
-                                    LineAreaChart(
-                                        points = dayPoints,
-                                        lineColor = colors.accent,
-                                        gridColor = colors.hairline,
-                                        minY = 0f,
-                                        maxYOverride = pvAxis.max,
-                                        minXOverride = 0f,
-                                        maxXOverride = 24f,
-                                        yAxis = pvAxis,
-                                        yUnit = "W",
-                                        textColor = colors.textLow,
-                                        tooltipLabel = { point ->
-                                            val h = point.x.toInt().coerceIn(0, 23)
-                                            val m = ((point.x - h) * 60).toInt().coerceIn(0, 59)
-                                            val zonedLabel = java.time.LocalTime.of(h, m)
-                                            val ampm = if (h < 12) "am" else "pm"
-                                            "${point.y.toInt()} W" to "${hourFmt.format(zonedLabel)}$ampm"
-                                        }
-                                    )
-                                }
-                                Row(
-                                    modifier = Modifier.fillMaxWidth().padding(top = 4.dp),
-                                    horizontalArrangement = Arrangement.SpaceBetween
-                                ) {
-                                    for (hour in 0..24 step 4) {
-                                        val h = hour % 24
-                                        val ampm = if (h < 12) "am" else "pm"
-                                        val display = if (h % 12 == 0) 12 else h % 12
-                                        Text(
-                                            "%02d%s".format(display, ampm),
-                                            style = MaterialTheme.typography.labelSmall,
-                                            color = colors.textLow
-                                        )
-                                    }
-                                }
-                            }
-                        } else {
-                            // Varios días: lista horizontal con la fecha de
-                            // cada día siempre visible (mismo criterio que la
-                            // vista Mensual).
-                            val dayFormatter = DateTimeFormatter.ofPattern("d MMM").withLocale(Locale("es", "ES"))
-                            val barEntries = dailyTotals.map { (date, kwh) ->
-                                HorizontalBarEntry(
-                                    label = dayFormatter.format(date),
-                                    value = kwh.toFloat(),
-                                    highlighted = bestDay != null && date == bestDay.key
-                                )
-                            }
-                            HorizontalBarList(
-                                entries = barEntries,
-                                barColor = colors.accent,
-                                trackColor = colors.hairline.copy(alpha = 0.4f),
-                                labelColor = colors.textMid,
-                                valueColor = colors.textHi,
-                                labelWidth = 52.dp,
-                                valueFormatter = { "%.1f kWh".format(it) },
-                                modifier = Modifier.padding(top = 16.dp)
-                            )
-                        }
-                    }
-                }
-
-                GenerationViewMode.MONTHLY -> {
+            run {
                     // Selector de mes con flechas ‹ ›
                     val monthFormatter = DateTimeFormatter.ofPattern("MMMM yyyy").withLocale(Locale("es", "ES"))
                     Row(
@@ -1652,7 +1297,7 @@ private fun DailyGenerationReportCard(
                     // readings (que ya viene acotado por el filtro de fecha
                     // de arriba) — así el selector de mes funciona de forma
                     // independiente, como espera el usuario.
-                    val monthReadings = allReadingsLast30Days.filter {
+                    val monthReadings = allReadingsInRetention.filter {
                         it.timestampEpochMillis in monthStartMillis..monthEndMillis
                     }
 
@@ -1739,7 +1384,6 @@ private fun DailyGenerationReportCard(
                             modifier = Modifier.padding(top = 16.dp)
                         )
                     }
-                }
             }
         }
     }
@@ -1777,7 +1421,7 @@ internal fun GenerationStatTile(
  * [ChartZoomState] hoisted que el gráfico para derivar el rango visible actual.
  */
 @Composable
-private fun ChartXAxis(
+internal fun ChartXAxis(
     zoomState: ChartZoomState,
     baseMinX: Float,
     baseMaxX: Float,

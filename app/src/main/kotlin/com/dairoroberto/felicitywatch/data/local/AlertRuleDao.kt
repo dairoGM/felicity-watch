@@ -15,6 +15,9 @@ interface AlertRuleDao {
     @Query("SELECT * FROM alert_rules WHERE enabled = 1")
     suspend fun getEnabled(): List<AlertRuleEntity>
 
+    @Query("SELECT * FROM alert_rules")
+    suspend fun getAll(): List<AlertRuleEntity>
+
     @Query("SELECT COUNT(*) FROM alert_rules")
     suspend fun count(): Int
 

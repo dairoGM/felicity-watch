@@ -32,7 +32,7 @@ class GridStateDebouncerTest {
         // seguida de recuperación, ninguna debe confirmar OFFLINE.
         repeat(3) {
             now = now.plusSeconds(5)
-            triggersDuringFluctuations += debouncer.onNewReading(null, now)
+            triggersDuringFluctuations += debouncer.onNewReading(0, now)
             now = now.plusSeconds(5)
             triggersDuringFluctuations += debouncer.onNewReading(100, now)
         }
@@ -45,9 +45,9 @@ class GridStateDebouncerTest {
 
         // Cambio real y sostenido: corte que se mantiene más de 60s.
         now = now.plusSeconds(5)
-        assertNull(debouncer.onNewReading(null, now))
+        assertNull(debouncer.onNewReading(0, now))
         now = now.plusSeconds(65)
-        val realTrigger = debouncer.onNewReading(null, now)
+        val realTrigger = debouncer.onNewReading(0, now)
 
         assertEquals(GridState.OFFLINE, realTrigger)
     }
@@ -64,7 +64,7 @@ class GridStateDebouncerTest {
         var triggerCount = 0
         repeat(10) {
             now = now.plusSeconds(30)
-            if (debouncer.onNewReading(null, now) != null) triggerCount++
+            if (debouncer.onNewReading(0, now) != null) triggerCount++
         }
 
         assertEquals(1, triggerCount)

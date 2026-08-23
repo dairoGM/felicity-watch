@@ -124,6 +124,8 @@ private fun titleFor(type: AlertRuleType): String = when (type) {
     AlertRuleType.GRID_ONLINE -> "Volvió la red"
     AlertRuleType.BATTERY_SOC_LOW -> "Batería baja"
     AlertRuleType.BATTERY_SOC_HIGH -> "Batería llena"
+    AlertRuleType.LOAD_HIGH -> "Consumo alto"
+    AlertRuleType.BATTERY_AUTONOMY_LOW -> "Autonomía baja"
 }
 
 /** Verde para "volvió la corriente", rojo para "se fue" — null para el resto

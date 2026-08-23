@@ -57,7 +57,11 @@ class AppliancesViewModel @Inject constructor(
     fun confirmEventAppliance(event: ApplianceEvent, appliance: ApplianceEntity) {
         val observed = abs(event.deltaWatts)
         viewModelScope.launch {
-            val affected = applianceRepository.learnFromConfirmation(appliance.id, observed)
+            val affected = applianceRepository.learnFromConfirmation(
+                applianceId = appliance.id,
+                observedWatts = observed,
+                eventEpochMillis = event.epochMillis
+            )
             _learningMessage.value = when {
                 affected <= 0 -> null
                 affected == 1 -> "Consumo de ${appliance.name} ajustado a partir de ${observed} W medidos."
@@ -77,11 +81,31 @@ class AppliancesViewModel @Inject constructor(
         // Mismo umbral que usan las notificaciones de equipos: si la lista
         // usara uno distinto, el usuario recibiría avisos de eventos que
         // luego no aparecen en la bitácora (o al revés).
-        appPreferences.applianceAlertThresholdWatts
-    ) { readings, catalog, dismissed, threshold ->
+        appPreferences.applianceAlertThresholdWatts,
+        applianceRepository.observeEventConfirmations()
+    ) { readings, catalog, dismissed, threshold, confirmations ->
         val dismissedSet = dismissed.toSet()
+        val byId = catalog.associateBy { it.id }
         ApplianceEventDetector.detect(readings, catalog, threshold)
             .filterNot { it.epochMillis in dismissedSet }
+            .map { event ->
+                // La confirmación del usuario GANA sobre la heurística de
+                // consumo: si dijo que fue el microondas, la bitácora dice
+                // microondas aunque el split tenga un consumo más cercano al
+                // salto detectado.
+                val confirmedId = confirmations[event.epochMillis]
+                val confirmedAppliance = confirmedId?.let { byId[it] }
+                if (confirmedAppliance != null) {
+                    event.copy(
+                        matchedAppliance = confirmedAppliance,
+                        // Ya no hay ambigüedad: el usuario resolvió cuál fue.
+                        candidateCount = 1,
+                        userConfirmed = true
+                    )
+                } else {
+                    event
+                }
+            }
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
     /** Umbral vigente, para mostrarlo en el texto de la bitácora. */

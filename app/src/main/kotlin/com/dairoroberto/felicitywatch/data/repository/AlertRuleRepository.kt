@@ -23,6 +23,19 @@ class AlertRuleRepository @Inject constructor(
         }
     }
 
+    /**
+     * Agrega tipos de regla nuevos (ej. LOAD_HIGH, BATTERY_AUTONOMY_LOW
+     * agregados en una actualización posterior) que todavía no existen para
+     * esta cuenta — sin esto, alguien que instaló la app antes de que
+     * existieran esos tipos nunca los vería, porque [seedDefaultsIfEmpty]
+     * solo actúa cuando la tabla está completamente vacía.
+     */
+    suspend fun seedMissingDefaults() {
+        val existingTypes = dao.getAll().map { it.type }.toSet()
+        val missing = AppDatabase.defaultAlertRules().filter { it.type !in existingTypes }
+        if (missing.isNotEmpty()) dao.insertAll(missing)
+    }
+
     /** Restablecimiento de fábrica: borra las reglas editadas y vuelve a los valores por defecto. */
     suspend fun resetToDefaults() {
         dao.deleteAll()

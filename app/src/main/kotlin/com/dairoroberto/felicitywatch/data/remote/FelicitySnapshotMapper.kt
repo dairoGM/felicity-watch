@@ -76,6 +76,25 @@ object FelicitySnapshotMapper {
         val gridFeedEnergyToday = firstDouble(data, "eGridFeedToday", "feedOutput")
         val gridInputEnergyToday = firstDouble(data, "eInvToday", "gridInput")
         val loadEnergyToday = firstDouble(data, "eLoadToday", "loadConsumption")
+        // Voltaje de la red (AC de entrada). Se prueban varios nombres porque
+        // la API no es consistente entre modelos; si ninguno viene, el campo
+        // queda null y la UI simplemente no muestra el voltaje en vez de
+        // inventar un valor.
+        val gridVoltage = firstDouble(
+            data,
+            "acRInVolt", "acVoltR", "acRVolt", "gridVoltage", "acInVolt", "vGrid", "acVolt"
+        )
+        // Voltaje de SALIDA del inversor hacia la carga de respaldo (la casa),
+        // no el del banco de baterías. Se necesita por separado: sin corriente
+        // de red, el "voltaje de la calle" no existe, y lo que realmente
+        // alimenta los tomacorrientes es esta salida AC del inversor — un
+        // valor en la misma escala que gridVoltage (110/120V), muy distinto
+        // del voltaje DC del banco de baterías (48V nominal, ~55V observado),
+        // que es una magnitud física distinta y no comparable.
+        val outputVoltage = firstDouble(
+            data,
+            "acROutVolt", "acOutVolt", "acRoOutVolt", "outVolt", "vOut", "acOutputVolt"
+        )
         val plantAddress = firstNonBlank(data, "plantAddress")
 
         return InverterReading(
@@ -89,6 +108,8 @@ object FelicitySnapshotMapper {
             gridInputEnergyTodayKwh = gridInputEnergyToday,
             loadEnergyTodayKwh = loadEnergyToday,
             deviceReportedAt = deviceReportedAt(data),
+            gridVoltage = gridVoltage,
+            outputVoltage = outputVoltage,
             plantAddress = plantAddress
         )
     }

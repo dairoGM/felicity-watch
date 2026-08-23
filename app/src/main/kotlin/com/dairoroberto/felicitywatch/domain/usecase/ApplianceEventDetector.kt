@@ -19,7 +19,10 @@ data class ApplianceEvent(
     /** Cuántos equipos del catálogo encajaban en este delta. Con más de
      * uno la propuesta es ambigua y la UI debe advertirlo — dos equipos de
      * consumo parecido son indistinguibles con un solo número de watts. */
-    val candidateCount: Int
+    val candidateCount: Int,
+    /** true si el usuario confirmo explicitamente que fue este equipo. La UI
+     * lo marca para distinguir un hecho confirmado de una propuesta. */
+    val userConfirmed: Boolean = false
 ) {
     val turnedOn: Boolean get() = deltaWatts > 0
 }

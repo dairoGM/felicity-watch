@@ -44,10 +44,10 @@ data class ApplianceEntity(
      * salto observado al encender el equipo), en watts. null = todavía no
      * se ha confirmado midiendo.
      *
-     * Se guarda aparte de [watts]/[minWatts] a propósito: esos son lo que
-     * el usuario DECLARÓ (de la etiqueta), y este es lo que la app MIDIÓ.
-     * Conservar ambos permite mostrar la diferencia, que suele ser grande
-     * porque la etiqueta indica el consumo máximo, no el de operación. */
+     * Al confirmar, este valor SOBRESCRIBE [watts]/[minWatts]: lo medido en
+     * esta casa es mas fiable que la etiqueta. Se conserva ademas aparte para
+     * saber que el consumo vigente vino de una medicion y no de lo que el
+     * usuario escribio, y para poder revertirlo (ver resetLearning). */
     val confirmedWatts: Int? = null,
     /** Cuándo se confirmó (epoch millis). null = sin confirmar. La
      * confirmación se hace una sola vez por equipo, pero se puede repetir
@@ -126,7 +126,7 @@ data class ApplianceEntity(
     /**
      * Incorpora un consumo observado al valor aprendido de este equipo.
      *
-     * Se promedia de forma incremental en vez de sobrescribir: la detección
+     * Se promedia de forma incremental en vez de reemplazar de golpe: la detección
      * mide el escalón del consumo TOTAL de la casa, así que cada observación
      * trae ruido (otro equipo que arrancó a la vez, un inverter en un punto
      * distinto de su curva). Promediando, cada confirmación acerca el valor al
@@ -146,7 +146,24 @@ data class ApplianceEntity(
             ((previous.toLong() * previousCount + observedWatts) / (previousCount + 1)).toInt()
         }
 
+        // El valor aprendido SOBRESCRIBE el declarado, no solo se guarda al
+        // lado. Antes se dejaba `watts` intacto y el equipo seguía compitiendo
+        // por su valor de etiqueta: un microondas registrado con 700 W y medido
+        // en 820 W seguía apareciendo como de 700 W en el inventario y seguía
+        // emparejando saltos de 700 W. El dato medido en esta casa es más
+        // fiable que la etiqueta, así que manda.
+        //
+        // En equipos con rango (inverter) se conserva el ANCHO del rango y se
+        // desplaza a la medición: una sola confirmación captura un punto de su
+        // curva, normalmente el arranque, y aplanar el rango a ese punto
+        // perdería el resto de su operación.
+        val range = maxOf(0, maxOf(watts, minWatts) - minOf(watts, minWatts))
+        val newMax = newWatts
+        val newMin = if (range > 0) (newWatts - range).coerceAtLeast(1) else newWatts
+
         return copy(
+            watts = newMax,
+            minWatts = newMin,
             confirmedWatts = newWatts,
             confirmedAtEpochMillis = atEpochMillis,
             confirmationCount = previousCount + 1

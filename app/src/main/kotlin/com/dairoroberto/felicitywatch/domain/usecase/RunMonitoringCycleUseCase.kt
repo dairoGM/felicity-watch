@@ -35,7 +35,8 @@ class RunMonitoringCycleUseCase @Inject constructor(
     private val credentialsStore: CredentialsStore,
     private val stateHolder: MonitoringStateHolder,
     private val powerHistoryRepository: PowerHistoryRepository,
-    private val notifyApplianceChangeUseCase: NotifyApplianceChangeUseCase
+    private val notifyApplianceChangeUseCase: NotifyApplianceChangeUseCase,
+    private val notifyLowVoltageUseCase: NotifyLowVoltageUseCase
 ) {
     suspend fun run(): SystemReading {
         if (!credentialsStore.hasFsolarCredentials()) {
@@ -78,6 +79,14 @@ class RunMonitoringCycleUseCase @Inject constructor(
             notifyApplianceChangeUseCase.onLoadReading(loadPowerWatts)
         } catch (e: Exception) {
             // Ignorado a propósito: no vale perder la lectura por el aviso.
+        }
+
+        // Aviso de voltaje bajo. Se pasa el estado de red vigente porque de él
+        // depende cuál voltaje vigilar: el de la calle o el de la batería.
+        try {
+            notifyLowVoltageUseCase.onReading(reading, stateHolder.liveGridState.value)
+        } catch (e: Exception) {
+            // Accesorio igual que el aviso de equipos: no debe cortar el ciclo.
         }
 
         val enabledRules = alertRuleRepository.getEnabledRules()

@@ -14,9 +14,10 @@ import com.dairoroberto.felicitywatch.domain.model.ComparisonOperator
         PushNotificationEntity::class,
         ApplianceEntity::class,
         DismissedApplianceEventEntity::class,
-        ImportedBackupEntity::class
+        ImportedBackupEntity::class,
+        ConfirmedApplianceEventEntity::class
     ],
-    version = 14,
+    version = 15,
     exportSchema = true
 )
 @TypeConverters(Converters::class)
@@ -28,6 +29,7 @@ abstract class AppDatabase : RoomDatabase() {
     abstract fun applianceDao(): ApplianceDao
     abstract fun dismissedApplianceEventDao(): DismissedApplianceEventDao
     abstract fun importedBackupDao(): ImportedBackupDao
+    abstract fun confirmedApplianceEventDao(): ConfirmedApplianceEventDao
 
     companion object {
         const val DATABASE_NAME = "felicity_watch.db"
@@ -77,6 +79,37 @@ abstract class AppDatabase : RoomDatabase() {
                 channelPushEnabled = false,
                 channelWhatsappEnabled = false,
                 messageTemplate = "La batería está llena"
+            ),
+            // Inversor de 8k: 7kW es un margen de seguridad antes del límite
+            // real del equipo, no un umbral arbitrario.
+            AlertRuleEntity(
+                type = AlertRuleType.LOAD_HIGH,
+                enabled = true,
+                thresholdValue = 7000.0,
+                comparisonOperator = ComparisonOperator.GTE,
+                debounceSeconds = 30,
+                channelVoiceEnabled = true,
+                channelPushEnabled = true,
+                channelWhatsappEnabled = true,
+                // El canal de voz no lee este texto (usa el tono de aviso
+                // intenso) — este mensaje es el que ven push y WhatsApp.
+                messageTemplate = "Consumo alto: se superó el umbral de potencia configurado"
+            ),
+            // Mismo umbral de horas que pone en rojo el anillo "AUTONOMÍA"
+            // del Panel (ver estimateBatteryRuntimeHours) — solo aplica sin
+            // corriente de red.
+            AlertRuleEntity(
+                type = AlertRuleType.BATTERY_AUTONOMY_LOW,
+                enabled = true,
+                thresholdValue = 2.0,
+                comparisonOperator = ComparisonOperator.LTE,
+                debounceSeconds = 30,
+                channelVoiceEnabled = true,
+                channelPushEnabled = true,
+                channelWhatsappEnabled = true,
+                // El canal de voz no lee este texto (usa el tono de aviso
+                // intenso) — este mensaje es el que ven push y WhatsApp.
+                messageTemplate = "Autonomía de batería baja: queda poco tiempo sin corriente de red"
             )
         )
     }

@@ -3,6 +3,8 @@ package com.dairoroberto.felicitywatch.domain.usecase
 import com.dairoroberto.felicitywatch.data.local.AlertEventEntity
 import com.dairoroberto.felicitywatch.data.local.AlertRuleEntity
 import com.dairoroberto.felicitywatch.data.repository.AlertEventRepository
+import com.dairoroberto.felicitywatch.domain.model.AlertRuleType
+import com.dairoroberto.felicitywatch.notification.LowVoltageAlertPlayer
 import com.dairoroberto.felicitywatch.notification.PushNotifier
 import com.dairoroberto.felicitywatch.notification.VoiceAlertPlayer
 import com.dairoroberto.felicitywatch.notification.WhatsappAlertSender
@@ -23,11 +25,19 @@ class DispatchAlertUseCase @Inject constructor(
     private val voicePlayer: VoiceAlertPlayer,
     private val pushNotifier: PushNotifier,
     private val whatsappSender: WhatsappAlertSender,
-    private val eventRepository: AlertEventRepository
+    private val eventRepository: AlertEventRepository,
+    private val lowVoltageAlertPlayer: LowVoltageAlertPlayer
 ) {
     suspend fun dispatch(rule: AlertRuleEntity, message: String) = coroutineScope {
         val voiceDeferred = async {
             if (!rule.channelVoiceEnabled) return@async false
+            // Consumo alto y autonomía baja usan el mismo tono/vibración del
+            // aviso de voltaje bajo (más intenso), no texto hablado: son
+            // avisos de "revisa el equipo ya" que se reconocen mejor por
+            // patrón de sonido que por una frase leída.
+            if (rule.type == AlertRuleType.LOAD_HIGH || rule.type == AlertRuleType.BATTERY_AUTONOMY_LOW) {
+                return@async runCatching { lowVoltageAlertPlayer.play(intense = true); true }.getOrDefault(false)
+            }
             runCatching { voicePlayer.speak(message) }.getOrDefault(false)
         }
         val pushDeferred = async {

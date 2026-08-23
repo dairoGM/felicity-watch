@@ -48,7 +48,7 @@ data class DashboardUiState(
      * el Panel usaba lastGridChangeAt, que solo se actualiza cuando una
      * regla de alerta se dispara y podía quedar desfasado del historial
      * real). */
-    val allReadingsLast30Days: List<PowerReadingEntity> = emptyList()
+    val allReadingsInRetention: List<PowerReadingEntity> = emptyList()
 ) {
     val connectionHealthy: Boolean get() = consecutiveFailures == 0 && lastError == null
 }
@@ -92,6 +92,15 @@ class DashboardViewModel @Inject constructor(
             viewModelScope,
             SharingStarted.WhileSubscribed(5000),
             AppPreferences.DEFAULT_POLLING_INTERVAL_SECONDS
+        )
+
+    /** Umbral de voltaje bajo, para pintar en rojo la pastilla del Panel
+     * cuando el voltaje cae por debajo. */
+    val lowVoltageThreshold: StateFlow<Int> = appPreferences.lowVoltageThreshold
+        .stateIn(
+            viewModelScope,
+            SharingStarted.WhileSubscribed(5000),
+            AppPreferences.DEFAULT_LOW_VOLTAGE_THRESHOLD
         )
 
     private data class GridSnapshot(val live: GridState, val confirmed: GridState, val lastChangeAt: Instant?)
@@ -143,7 +152,7 @@ class DashboardViewModel @Inject constructor(
     val uiState: StateFlow<DashboardUiState> = combine(
         readingsFlow,
         statusFlow,
-        powerHistoryRepository.observeLast30Days()
+        powerHistoryRepository.observeLastRetentionWindow()
     ) { readings, status, historyLast30Days ->
         DashboardUiState(
             liveGridState = readings.liveGridState,
@@ -161,7 +170,7 @@ class DashboardViewModel @Inject constructor(
             whatsappConfigured = credentialsStore.hasWhatsappConfig(),
             inverterError = readings.inverterError,
             batteryError = readings.batteryError,
-            allReadingsLast30Days = historyLast30Days
+            allReadingsInRetention = historyLast30Days
         )
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), DashboardUiState())
 

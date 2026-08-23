@@ -15,10 +15,10 @@ class PowerHistoryRepository @Inject constructor(
     fun observeLast24Hours(): Flow<List<PowerReadingEntity>> =
         dao.observeSince(Instant.now().minus(Duration.ofHours(24)).toEpochMilli())
 
-    /** Para el Panel: totales de Hoy/7 días/30 días — cubre las tres
-     * ventanas con una sola consulta (30 días es lo máximo que retiene
-     * el historial local, ver [RETENTION_DAYS]). */
-    fun observeLast30Days(): Flow<List<PowerReadingEntity>> =
+    /** Para el Panel: totales de Hoy/7 días/30 días. Usa el máximo de retención
+     * (ver [RETENTION_DAYS]) — hoy son 6 meses, ampliados desde 30 días para
+     * que la pantalla de Factura y ahorro pueda comparar meses entre sí. */
+    fun observeLastRetentionWindow(): Flow<List<PowerReadingEntity>> =
         dao.observeSince(Instant.now().minus(Duration.ofDays(RETENTION_DAYS)).toEpochMilli())
 
     /** Para el Reporte: rango de fechas elegido por el usuario. */
@@ -53,14 +53,28 @@ class PowerHistoryRepository @Inject constructor(
                 loadEnergyTodayKwh = loadEnergyTodayKwh
             )
         )
-        // Poda liviana: retiene 30 días para que el Reporte con filtro de
-        // fecha tenga margen razonable sin crecer sin límite.
+        // Poda liviana: retiene RETENTION_DAYS para que el Reporte y la
+        // estimación de Factura tengan margen razonable sin crecer sin límite.
         dao.deleteOlderThan(now.minus(Duration.ofDays(RETENTION_DAYS)).toEpochMilli())
     }
 
     suspend fun clearAll() = dao.deleteAll()
 
     companion object {
-        private const val RETENTION_DAYS = 30L
+        /**
+         * 6 meses. Antes eran 30 días; se amplió para que "Factura y ahorro"
+         * pueda comparar un mes contra otro — con 30 días, en cuanto pasaba
+         * el día 1 de cada mes ya no quedaba ni un mes completo anterior para
+         * comparar.
+         *
+         * Costo de espacio, con una fila de ~55 bytes por lectura:
+         *   - polling de 30s: ~27 MB en 6 meses
+         *   - polling de 5s:  ~163 MB en 6 meses
+         * Aceptable para almacenamiento de teléfono; si en el futuro hace
+         * falta más rango, subir esto es el único cambio necesario aquí — el
+         * resto del código ya lee por ventana relativa, no por un número fijo
+         * de días hardcodeado en otro lugar.
+         */
+        const val RETENTION_DAYS = 183L
     }
 }

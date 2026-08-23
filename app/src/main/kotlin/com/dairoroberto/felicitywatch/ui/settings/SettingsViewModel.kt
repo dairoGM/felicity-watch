@@ -11,6 +11,7 @@ import com.dairoroberto.felicitywatch.data.repository.AlertRuleRepository
 import com.dairoroberto.felicitywatch.data.repository.FelicityRepository
 import com.dairoroberto.felicitywatch.domain.usecase.RunMonitoringCycleUseCase
 import com.dairoroberto.felicitywatch.domain.usecase.describeMonitoringError
+import com.dairoroberto.felicitywatch.notification.LowVoltageAlertPlayer
 import com.dairoroberto.felicitywatch.notification.NotificationChannels
 import com.dairoroberto.felicitywatch.notification.PushNotifier
 import com.dairoroberto.felicitywatch.notification.VoiceAlertPlayer
@@ -24,6 +25,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharedFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import javax.inject.Inject
@@ -45,6 +47,7 @@ class SettingsViewModel @Inject constructor(
     private val appPreferences: AppPreferences,
     private val felicityRepository: FelicityRepository,
     private val voicePlayer: VoiceAlertPlayer,
+    private val lowVoltageAlertPlayer: LowVoltageAlertPlayer,
     private val pushNotifier: PushNotifier,
     private val whatsappSender: WhatsappAlertSender,
     private val runMonitoringCycleUseCase: RunMonitoringCycleUseCase,
@@ -87,6 +90,55 @@ class SettingsViewModel @Inject constructor(
                     AppPreferences.MIN_APPLIANCE_ALERT_THRESHOLD_WATTS,
                     AppPreferences.MAX_APPLIANCE_ALERT_THRESHOLD_WATTS
                 )
+            )
+        }
+    }
+
+    val lowVoltageAlertEnabled: StateFlow<Boolean> = appPreferences.lowVoltageAlertEnabled
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), false)
+
+    val lowVoltageThreshold: StateFlow<Int> = appPreferences.lowVoltageThreshold
+        .stateIn(
+            viewModelScope,
+            SharingStarted.WhileSubscribed(5000),
+            AppPreferences.DEFAULT_LOW_VOLTAGE_THRESHOLD
+        )
+
+    fun setLowVoltageAlertEnabled(enabled: Boolean) {
+        viewModelScope.launch { appPreferences.setLowVoltageAlertEnabled(enabled) }
+    }
+
+    fun setLowVoltageThreshold(volts: Int) {
+        viewModelScope.launch {
+            appPreferences.setLowVoltageThreshold(
+                volts.coerceIn(
+                    AppPreferences.MIN_LOW_VOLTAGE_THRESHOLD,
+                    AppPreferences.MAX_LOW_VOLTAGE_THRESHOLD
+                )
+            )
+        }
+    }
+
+    /** Prueba el aviso COMPLETO — notificacion + sonido + vibracion — para que
+     * el usuario vea exactamente lo que va a recibir, sin esperar una caida
+     * real de voltaje. Antes solo tocaba el sonido, asi que no se podia
+     * comprobar si las notificaciones estaban permitidas. */
+    fun testLowVoltageAlert() {
+        viewModelScope.launch {
+            val threshold = appPreferences.lowVoltageThreshold.first()
+            // Valor de ejemplo por debajo del umbral, para que el texto de la
+            // notificacion se lea igual que en un aviso real.
+            val sample = (threshold - 4).coerceAtLeast(1)
+            val sent = pushNotifier.notifyAlert(
+                title = "Voltaje bajo (prueba)",
+                body = "El voltaje de la red cayo a $sample,0 V, por debajo de los $threshold V " +
+                    "configurados. Un voltaje bajo puede danar motores y compresores.",
+                notificationId = 6_002
+            )
+            lowVoltageAlertPlayer.play()
+            emit(
+                if (sent) "Aviso de prueba enviado"
+                else "Sono la alerta, pero no se pudo mostrar la notificacion: revisa el permiso de notificaciones"
             )
         }
     }

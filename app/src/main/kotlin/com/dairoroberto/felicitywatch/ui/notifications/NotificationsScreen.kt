@@ -133,7 +133,8 @@ private fun gridToneFor(notification: PushNotificationEntity): GridNotificationT
     when (notification.ruleType) {
         AlertRuleType.GRID_ONLINE -> return GridNotificationTone.RESTORED
         AlertRuleType.GRID_OFFLINE -> return GridNotificationTone.LOST
-        AlertRuleType.BATTERY_SOC_LOW, AlertRuleType.BATTERY_SOC_HIGH -> return GridNotificationTone.OTHER
+        AlertRuleType.BATTERY_SOC_LOW, AlertRuleType.BATTERY_SOC_HIGH,
+        AlertRuleType.LOAD_HIGH, AlertRuleType.BATTERY_AUTONOMY_LOW -> return GridNotificationTone.OTHER
         null -> Unit
     }
 

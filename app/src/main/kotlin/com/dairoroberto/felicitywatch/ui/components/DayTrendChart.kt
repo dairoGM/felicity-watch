@@ -66,8 +66,8 @@ data class TrendPoint(
  *
  * - Relleno con degradado de varias paradas y un piso solido tenue: da
  *   volumen sin ensuciar la rejilla.
- * - La linea lleva un halo suave debajo, lo que la separa visualmente del
- *   area y evita el aspecto plano de un solo trazo.
+ * - La linea lleva un halo fino debajo, lo que la separa del area sin
+ *   difuminarla.
  * - Rejilla punteada muy tenue + eje base solido: la referencia se lee sin
  *   competir con los datos.
  * - Marcador del punto maximo del dia, que es la cifra que el usuario busca.
@@ -257,12 +257,13 @@ fun DayTrendChart(
                     )
                 )
 
-                // Halo bajo la linea: la separa del area y le da cuerpo. Es
-                // lo que diferencia un trazo plano de uno con acabado.
+                // Halo fino bajo la linea: le da cuerpo sin difuminarla. Antes
+                // eran 6dp al 22%, que a simple vista se leia como una sombra
+                // borrosa alrededor del trazo en vez de un acabado.
                 drawPath(
                     path = linePath,
-                    color = lineColor.copy(alpha = 0.22f),
-                    style = Stroke(width = with(density) { 6.dp.toPx() }, cap = StrokeCap.Round)
+                    color = lineColor.copy(alpha = 0.14f),
+                    style = Stroke(width = with(density) { 4.dp.toPx() }, cap = StrokeCap.Round)
                 )
                 drawPath(
                     path = linePath,

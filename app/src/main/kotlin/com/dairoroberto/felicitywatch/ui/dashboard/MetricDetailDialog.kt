@@ -52,7 +52,7 @@ enum class MetricDetail(val title: String, val unit: String) {
  * Modal con la evolucion de una metrica a lo largo del dia de hoy.
  *
  * Se alimenta del historial local que el Panel ya tiene cargado
- * (allReadingsLast30Days), filtrado al dia actual — no hace consultas nuevas
+ * (allReadingsInRetention), filtrado al dia actual — no hace consultas nuevas
  * ni depende del endpoint de historial de Felicity.
  */
 @Composable
@@ -65,7 +65,7 @@ fun MetricDetailDialog(
     val zone = remember { ZoneId.systemDefault() }
 
     val accent = when (detail) {
-        MetricDetail.PV -> colors.green
+        MetricDetail.PV -> colors.pvAccent
         MetricDetail.BATTERY -> colors.chargeAccent
         MetricDetail.LOAD -> colors.accent
     }
@@ -80,7 +80,7 @@ fun MetricDetailDialog(
     // caida a cero que no ocurrio.
     val points = remember(readings, detail) {
         val today = LocalDate.now(zone)
-        readings
+        val raw = readings
             .asSequence()
             .mapNotNull { reading ->
                 val value = when (detail) {
@@ -99,11 +99,29 @@ fun MetricDetailDialog(
             }
             .sortedBy { it.hourOfDay }
             .toList()
+
+        // Para PV se recorta la madrugada/noche sin generación (0W): de lo
+        // contrario más de medio día es una línea plana en 0 sin nada que
+        // mostrar, y el eje arranca a las 00:00 en vez de a la hora real en
+        // que empieza a generar el sol.
+        if (detail == MetricDetail.PV) {
+            val firstGenerating = raw.indexOfFirst { it.value > 0f }
+            val lastGenerating = raw.indexOfLast { it.value > 0f }
+            if (firstGenerating == -1) raw else raw.subList(firstGenerating, lastGenerating + 1)
+        } else {
+            raw
+        }
     }
 
     AlertDialog(
         onDismissRequest = onDismiss,
         containerColor = colors.surface2,
+        // Sin elevacion tonal ni sombra: la elevacion por defecto del
+        // AlertDialog tinta la superficie por encima del color del tema, y ese
+        // tinte se mezclaba con el degradado del area de la grafica dejandola
+        // turbia. Con 0 el fondo es exactamente surface2 y el degradado se ve
+        // limpio.
+        tonalElevation = 0.dp,
         title = {
             MetricDialogHeader(
                 detail = detail,

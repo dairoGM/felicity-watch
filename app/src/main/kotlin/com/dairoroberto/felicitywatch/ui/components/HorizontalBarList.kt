@@ -5,6 +5,8 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
@@ -49,13 +51,21 @@ fun HorizontalBarList(
     labelWidth: androidx.compose.ui.unit.Dp = 34.dp,
     valueFormatter: (Float) -> String = { "%.1f".format(it) },
     /** Máximo del eje forzado — útil para comparar dos listas entre sí. */
-    maxValueOverride: Float? = null
+    maxValueOverride: Float? = null,
+    /** Segundo segmento apilado A CONTINUACIÓN de [HorizontalBarEntry.value]
+     * en la misma barra (ej. consumo "sin corriente" después del "con
+     * corriente") — mismo índice que [entries]. El máximo del eje se
+     * calcula sobre primario+secundario para que la barra completa quepa. */
+    secondaryValues: List<Float>? = null,
+    secondaryColor: Color = barColor
 ) {
     if (entries.isEmpty()) return
-    val maxValue = (maxValueOverride ?: entries.maxOf { it.value }).coerceAtLeast(0.01f)
+    val totals = entries.mapIndexed { i, e -> e.value + (secondaryValues?.getOrNull(i) ?: 0f) }
+    val maxValue = (maxValueOverride ?: totals.maxOrNull() ?: 0f).coerceAtLeast(0.01f)
 
     Column(modifier = modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-        entries.forEach { entry ->
+        entries.forEachIndexed { index, entry ->
+            val secondary = secondaryValues?.getOrNull(index) ?: 0f
             Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
                 Text(
                     entry.label,
@@ -66,29 +76,44 @@ fun HorizontalBarList(
                     softWrap = false,
                     modifier = Modifier.width(labelWidth)
                 )
-                // Pista de fondo + barra proporcional. La barra usa un
-                // mínimo visible para que un día con muy poca generación no
-                // desaparezca del todo y parezca un día sin datos.
-                Box(
+                // Pista de fondo + barra proporcional. Se usan pesos
+                // (weight) en vez de fillMaxWidth(fracción) para el segundo
+                // segmento: fillMaxWidth mide contra el ancho TOTAL
+                // disponible en cada hijo del Row, no contra lo que sobra
+                // tras el primer segmento, así que dos fillMaxWidth
+                // consecutivos no se apilan proporcionalmente. Con weight,
+                // Compose reparte el ancho exactamente según la proporción
+                // de cada valor frente al máximo del eje.
+                Row(
                     modifier = Modifier
                         .weight(1f)
                         .height(16.dp)
                         .clip(RoundedCornerShape(4.dp))
                         .background(trackColor)
                 ) {
-                    val fraction = (entry.value / maxValue).coerceIn(0f, 1f)
+                    val remaining = (maxValue - entry.value - secondary).coerceAtLeast(0f)
                     if (entry.value > 0f) {
                         Box(
                             modifier = Modifier
-                                .fillMaxWidth(fraction.coerceAtLeast(0.015f))
-                                .height(16.dp)
-                                .clip(RoundedCornerShape(4.dp))
+                                .weight(entry.value.coerceAtLeast(maxValue * 0.008f))
+                                .fillMaxHeight()
                                 .background(if (entry.highlighted) barColor else barColor.copy(alpha = 0.8f))
                         )
                     }
+                    if (secondary > 0f) {
+                        Box(
+                            modifier = Modifier
+                                .weight(secondary.coerceAtLeast(maxValue * 0.008f))
+                                .fillMaxHeight()
+                                .background(secondaryColor.copy(alpha = if (entry.highlighted) 1f else 0.8f))
+                        )
+                    }
+                    if (remaining > 0f) {
+                        Spacer(modifier = Modifier.weight(remaining))
+                    }
                 }
                 Text(
-                    valueFormatter(entry.value),
+                    valueFormatter(entry.value + secondary),
                     style = MaterialTheme.typography.labelSmall,
                     fontWeight = if (entry.highlighted) FontWeight.Bold else FontWeight.Normal,
                     color = valueColor,

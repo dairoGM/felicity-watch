@@ -6,6 +6,7 @@ import com.dairoroberto.felicitywatch.data.local.AlertEventDao
 import com.dairoroberto.felicitywatch.data.local.AlertRuleDao
 import com.dairoroberto.felicitywatch.data.local.ApplianceDao
 import com.dairoroberto.felicitywatch.data.local.AppDatabase
+import com.dairoroberto.felicitywatch.data.local.ConfirmedApplianceEventDao
 import com.dairoroberto.felicitywatch.data.local.DismissedApplianceEventDao
 import com.dairoroberto.felicitywatch.data.local.ImportedBackupDao
 import com.dairoroberto.felicitywatch.data.local.Migrations
@@ -54,4 +55,8 @@ object DatabaseModule {
     @Provides
     fun provideImportedBackupDao(database: AppDatabase): ImportedBackupDao =
         database.importedBackupDao()
+
+    @Provides
+    fun provideConfirmedApplianceEventDao(database: AppDatabase): ConfirmedApplianceEventDao =
+        database.confirmedApplianceEventDao()
 }

@@ -2,6 +2,8 @@ package com.dairoroberto.felicitywatch.data.repository
 
 import com.dairoroberto.felicitywatch.data.local.ApplianceDao
 import com.dairoroberto.felicitywatch.data.local.ApplianceEntity
+import com.dairoroberto.felicitywatch.data.local.ConfirmedApplianceEventDao
+import com.dairoroberto.felicitywatch.data.local.ConfirmedApplianceEventEntity
 import com.dairoroberto.felicitywatch.data.local.DismissedApplianceEventDao
 import com.dairoroberto.felicitywatch.data.local.DismissedApplianceEventEntity
 import com.dairoroberto.felicitywatch.data.local.ImportedBackupDao
@@ -12,6 +14,7 @@ import com.dairoroberto.felicitywatch.domain.usecase.toBackup
 import com.dairoroberto.felicitywatch.domain.usecase.toEntity
 import com.google.gson.Gson
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.map
 import java.time.Duration
 import java.time.Instant
 import java.util.UUID
@@ -22,7 +25,8 @@ import javax.inject.Singleton
 class ApplianceRepository @Inject constructor(
     private val dao: ApplianceDao,
     private val dismissedDao: DismissedApplianceEventDao,
-    private val importedBackupDao: ImportedBackupDao
+    private val importedBackupDao: ImportedBackupDao,
+    private val confirmedDao: ConfirmedApplianceEventDao
 ) {
     fun observeAll(): Flow<List<ApplianceEntity>> = dao.observeAll()
 
@@ -48,9 +52,23 @@ class ApplianceRepository @Inject constructor(
     suspend fun learnFromConfirmation(
         applianceId: Long,
         observedWatts: Int,
+        /** Instante del evento confirmado. Se guarda la atribucion para que la
+         * bitacora muestre el equipo que dijo el usuario y no el que propone
+         * la heuristica de consumo. */
+        eventEpochMillis: Long,
         nowEpochMillis: Long = Instant.now().toEpochMilli()
     ): Int {
         val confirmed = dao.getById(applianceId) ?: return 0
+
+        // Se persiste la atribucion ANTES de aprender: aunque el aprendizaje
+        // falle, la bitacora debe reflejar lo que el usuario confirmo.
+        confirmedDao.upsert(
+            ConfirmedApplianceEventEntity(
+                eventEpochMillis = eventEpochMillis,
+                applianceId = applianceId,
+                confirmedAtEpochMillis = nowEpochMillis
+            )
+        )
 
         // Sin grupo, el equipo aprende solo de sus propias confirmaciones.
         val targets = if (confirmed.hasSimilarGroup) {
@@ -125,6 +143,15 @@ class ApplianceRepository @Inject constructor(
     }
 
     suspend fun clearAll() = dao.deleteAll()
+
+
+    // --- Confirmaciones por evento ---
+
+    /** Qué equipo confirmó el usuario para cada evento, por instante. */
+    fun observeEventConfirmations(): Flow<Map<Long, Long>> =
+        confirmedDao.observeAll().map { list ->
+            list.associate { it.eventEpochMillis to it.applianceId }
+        }
 
     // --- Exportar / importar inventario ---
 

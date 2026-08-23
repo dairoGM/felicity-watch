@@ -130,6 +130,11 @@ fun SettingsScreen(
             coroutineScope.launch { snackbarHostState.showSnackbar(message) }
         }
     }
+    LaunchedEffect(Unit) {
+        alertsViewModel.messages.collect { message ->
+            coroutineScope.launch { snackbarHostState.showSnackbar(message) }
+        }
+    }
 
     // Pide el permiso POST_NOTIFICATIONS (Android 13+) con el modal nativo del
     // sistema antes de disparar la prueba del canal push, en vez de fallar en
@@ -407,7 +412,15 @@ private fun LazyListScope.systemTab(
                         customIntervalMode = true
                         if (customInterval.isBlank()) customInterval = pollingIntervalSeconds.toString()
                     },
-                    label = { Text("Personalizado") },
+                    // El valor personalizado se muestra EN el chip: antes decia solo
+                    // "Personalizado" y habia que abrirlo para saber cual era,
+                    // asi que el usuario no veia su propia configuracion.
+                    label = {
+                        Text(
+                            if (customIntervalMode) "Otro: ${pollingIntervalSeconds}s"
+                            else "Otro…"
+                        )
+                    },
                     colors = FilterChipDefaults.filterChipColors(
                         selectedContainerColor = colors.tealDim
                     )
@@ -561,7 +574,9 @@ private fun LazyListScope.systemTab(
                             customMode = true
                             if (customThreshold.isBlank()) customThreshold = threshold.toString()
                         },
-                        label = { Text("Personalizado") },
+                        label = {
+                            Text(if (customMode) "Otro: ${threshold}W" else "Otro…")
+                        },
                         colors = FilterChipDefaults.filterChipColors(
                             selectedContainerColor = colors.tealDim
                         )
@@ -611,6 +626,140 @@ private fun LazyListScope.systemTab(
                     "El aviso llega cuando la app lee el dato, no en el instante exacto del " +
                         "encendido: depende de la frecuencia de consulta y de cuándo el inversor " +
                         "publica sus datos. Solo avisa de equipos registrados en tu inventario.",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = colors.textLow,
+                    modifier = Modifier.padding(top = SECTION_CONTENT_SPACING)
+                )
+            }
+        }
+    }
+
+    item {
+        val colors = LocalFelicityColors.current
+        val voltageAlertEnabled by viewModel.lowVoltageAlertEnabled.collectAsState()
+        val voltageThreshold by viewModel.lowVoltageThreshold.collectAsState()
+
+        var customVoltage by remember { mutableStateOf("") }
+        var customVoltageMode by remember {
+            mutableStateOf(voltageThreshold !in AppPreferences.LOW_VOLTAGE_THRESHOLD_PRESETS)
+        }
+
+        SectionCard(title = "Aviso de voltaje bajo") {
+            Text(
+                "Avisa cuando el voltaje cae por debajo del valor que fijes. Vigila el voltaje " +
+                    "de la red cuando hay corriente, y el de la batería cuando no.",
+                style = MaterialTheme.typography.bodySmall,
+                color = colors.textMid
+            )
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                modifier = Modifier.fillMaxWidth().padding(top = SECTION_CONTENT_SPACING)
+            ) {
+                Text(
+                    if (voltageAlertEnabled) "Activado" else "Desactivado",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = if (voltageAlertEnabled) colors.green else colors.textMid,
+                    modifier = Modifier.weight(1f)
+                )
+                Switch(
+                    checked = voltageAlertEnabled,
+                    onCheckedChange = { viewModel.setLowVoltageAlertEnabled(it) }
+                )
+            }
+
+            if (voltageAlertEnabled) {
+                Text(
+                    "Avisar por debajo de: $voltageThreshold V",
+                    style = MaterialTheme.typography.bodySmall,
+                    fontWeight = FontWeight.Medium,
+                    color = colors.textHi,
+                    modifier = Modifier.padding(top = SECTION_CONTENT_SPACING)
+                )
+                Text(
+                    "Ajústalo al voltaje nominal de tu instalación. Un voltaje bajo no se nota " +
+                        "porque la casa sigue encendida, pero fuerza motores y compresores.",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = colors.textLow
+                )
+                FlowRow(
+                    modifier = Modifier.fillMaxWidth().padding(top = 8.dp),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    verticalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    AppPreferences.LOW_VOLTAGE_THRESHOLD_PRESETS.forEach { volts ->
+                        FilterChip(
+                            selected = !customVoltageMode && voltageThreshold == volts,
+                            onClick = {
+                                customVoltageMode = false
+                                viewModel.setLowVoltageThreshold(volts)
+                            },
+                            label = { Text("${volts}V") },
+                            colors = FilterChipDefaults.filterChipColors(
+                                selectedContainerColor = colors.tealDim
+                            )
+                        )
+                    }
+                    FilterChip(
+                        selected = customVoltageMode,
+                        onClick = {
+                            customVoltageMode = true
+                            if (customVoltage.isBlank()) customVoltage = voltageThreshold.toString()
+                        },
+                        label = {
+                            Text(if (customVoltageMode) "Otro: ${voltageThreshold}V" else "Otro…")
+                        },
+                        colors = FilterChipDefaults.filterChipColors(
+                            selectedContainerColor = colors.tealDim
+                        )
+                    )
+                }
+
+                if (customVoltageMode) {
+                    val entered = customVoltage.toIntOrNull()
+                    val outOfRange = entered != null && (
+                        entered < AppPreferences.MIN_LOW_VOLTAGE_THRESHOLD ||
+                            entered > AppPreferences.MAX_LOW_VOLTAGE_THRESHOLD
+                        )
+                    Row(
+                        verticalAlignment = Alignment.Top,
+                        modifier = Modifier.fillMaxWidth().padding(top = 8.dp)
+                    ) {
+                        OutlinedTextField(
+                            value = customVoltage,
+                            onValueChange = { input -> customVoltage = input.filter { it.isDigit() }.take(3) },
+                            label = { Text("Voltios") },
+                            singleLine = true,
+                            isError = outOfRange,
+                            supportingText = if (outOfRange) {
+                                {
+                                    Text(
+                                        "Entre ${AppPreferences.MIN_LOW_VOLTAGE_THRESHOLD} y " +
+                                            "${AppPreferences.MAX_LOW_VOLTAGE_THRESHOLD} V"
+                                    )
+                                }
+                            } else null,
+                            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                            modifier = Modifier.weight(1f)
+                        )
+                        OutlinedButton(
+                            onClick = { entered?.let { viewModel.setLowVoltageThreshold(it) } },
+                            enabled = entered != null && !outOfRange,
+                            modifier = Modifier.padding(start = 8.dp, top = 8.dp)
+                        ) { Text("Aplicar") }
+                    }
+                }
+
+                OutlinedButton(
+                    onClick = { viewModel.testLowVoltageAlert() },
+                    modifier = Modifier.fillMaxWidth().padding(top = SECTION_CONTENT_SPACING)
+                ) { Text("Probar el aviso") }
+
+                Text(
+                    "Llega una notificación, suenan tres pulsos graves y el teléfono vibra. En el " +
+                        "Panel, la pastilla del " +
+                        "voltaje se pone en rojo mientras siga bajo. Para no llenarte de avisos, " +
+                        "solo se notifica al cruzar el umbral y con 10 minutos de espera entre " +
+                        "avisos.",
                     style = MaterialTheme.typography.labelSmall,
                     color = colors.textLow,
                     modifier = Modifier.padding(top = SECTION_CONTENT_SPACING)

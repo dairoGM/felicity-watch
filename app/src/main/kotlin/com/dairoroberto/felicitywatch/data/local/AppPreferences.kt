@@ -52,6 +52,25 @@ class AppPreferences @Inject constructor(@ApplicationContext private val context
         context.dataStore.edit { it[KEY_APPLIANCE_ALERT_THRESHOLD_WATTS] = watts }
     }
 
+
+    /** Avisar cuando el voltaje cae por debajo de [lowVoltageThreshold].
+     * Apagado por defecto: el umbral útil depende de la instalación, y sin
+     * configurarlo un valor genérico avisaría de más o de menos. */
+    val lowVoltageAlertEnabled: Flow<Boolean> = context.dataStore.data
+        .map { it[KEY_LOW_VOLTAGE_ALERT_ENABLED] ?: false }
+
+    suspend fun setLowVoltageAlertEnabled(enabled: Boolean) {
+        context.dataStore.edit { it[KEY_LOW_VOLTAGE_ALERT_ENABLED] = enabled }
+    }
+
+    /** Voltaje por debajo del cual se considera bajo, en voltios. */
+    val lowVoltageThreshold: Flow<Int> = context.dataStore.data
+        .map { it[KEY_LOW_VOLTAGE_THRESHOLD] ?: DEFAULT_LOW_VOLTAGE_THRESHOLD }
+
+    suspend fun setLowVoltageThreshold(volts: Int) {
+        context.dataStore.edit { it[KEY_LOW_VOLTAGE_THRESHOLD] = volts }
+    }
+
     suspend fun setLastReadingNow(epochMillis: Long) {
         context.dataStore.edit { it[KEY_LAST_READING_MILLIS] = epochMillis }
     }
@@ -68,6 +87,24 @@ class AppPreferences @Inject constructor(@ApplicationContext private val context
         context.dataStore.edit { it.clear() }
     }
 
+    /** Franja horaria configurable del reporte "Franja horaria" (ej. consumo
+     * nocturno 10pm-8am) — hora de inicio, 0-23. */
+    val nightWindowStartHour: Flow<Int> = context.dataStore.data
+        .map { it[KEY_NIGHT_WINDOW_START_HOUR] ?: DEFAULT_NIGHT_WINDOW_START_HOUR }
+
+    suspend fun setNightWindowStartHour(hour: Int) {
+        context.dataStore.edit { it[KEY_NIGHT_WINDOW_START_HOUR] = hour }
+    }
+
+    /** Hora de fin de la franja, 0-23 — puede ser menor que la de inicio
+     * (cruza medianoche, ej. 22 → 8) o mayor (no cruza, ej. 9 → 17). */
+    val nightWindowEndHour: Flow<Int> = context.dataStore.data
+        .map { it[KEY_NIGHT_WINDOW_END_HOUR] ?: DEFAULT_NIGHT_WINDOW_END_HOUR }
+
+    suspend fun setNightWindowEndHour(hour: Int) {
+        context.dataStore.edit { it[KEY_NIGHT_WINDOW_END_HOUR] = hour }
+    }
+
     companion object {
         private val KEY_LAST_READING_MILLIS = longPreferencesKey("last_reading_epoch_millis")
         private val KEY_LAST_GRID_STATE = stringPreferencesKey("last_grid_state")
@@ -77,7 +114,11 @@ class AppPreferences @Inject constructor(@ApplicationContext private val context
 
         /** Presets ofrecidos en Ajustes; fuera de estos el usuario escribe el
          * intervalo que quiera (ver MIN/MAX). */
-        val POLLING_INTERVAL_PRESETS = listOf(5, 10, 15, 30)
+        // Cuatro presets + "Personalizado" caben en dos filas sin que el
+        // ultimo chip quede solo en una linea. Se quito el de 5 s: por debajo
+        // de la cadencia del inversor las consultas extra devuelven el mismo
+        // dato (ver el aviso en Ajustes).
+        val POLLING_INTERVAL_PRESETS = listOf(10, 30, 60)
 
         /** Mínimo de 5 s: por debajo se consulta a Felicity varias veces por
          * cada dato nuevo que el inversor publica, gastando batería y datos
@@ -99,5 +140,24 @@ class AppPreferences @Inject constructor(@ApplicationContext private val context
 
         const val MIN_APPLIANCE_ALERT_THRESHOLD_WATTS = 50
         const val MAX_APPLIANCE_ALERT_THRESHOLD_WATTS = 10_000
+
+        private val KEY_LOW_VOLTAGE_ALERT_ENABLED = booleanPreferencesKey("low_voltage_alert_enabled")
+        private val KEY_LOW_VOLTAGE_THRESHOLD = intPreferencesKey("low_voltage_threshold")
+
+        /** 100 V como punto de partida para una red de 110-120 V: por debajo
+         * de eso los equipos ya sufren. El usuario lo ajusta a su instalación,
+         * que puede ser de 220 V o tener un banco de otro voltaje nominal. */
+        const val DEFAULT_LOW_VOLTAGE_THRESHOLD = 100
+        // Tres presets + "Otro" caben en una sola linea. Con cuatro, el chip de
+        // "Otro" saltaba de renglon y quedaba solo. Para 220 V esta el valor
+        // personalizado, que muestra el numero en el propio chip.
+        val LOW_VOLTAGE_THRESHOLD_PRESETS = listOf(100, 105, 110)
+        const val MIN_LOW_VOLTAGE_THRESHOLD = 10
+        const val MAX_LOW_VOLTAGE_THRESHOLD = 500
+
+        private val KEY_NIGHT_WINDOW_START_HOUR = intPreferencesKey("night_window_start_hour")
+        private val KEY_NIGHT_WINDOW_END_HOUR = intPreferencesKey("night_window_end_hour")
+        const val DEFAULT_NIGHT_WINDOW_START_HOUR = 22
+        const val DEFAULT_NIGHT_WINDOW_END_HOUR = 8
     }
 }

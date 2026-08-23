@@ -2,6 +2,7 @@ package com.dairoroberto.felicitywatch.ui.report
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.dairoroberto.felicitywatch.data.local.AppPreferences
 import com.dairoroberto.felicitywatch.data.local.PowerReadingEntity
 import com.dairoroberto.felicitywatch.data.repository.PowerHistoryRepository
 import com.dairoroberto.felicitywatch.domain.model.GridState
@@ -13,6 +14,7 @@ import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.stateIn
+import kotlinx.coroutines.launch
 import java.time.Instant
 import java.time.LocalDate
 import java.time.ZoneId
@@ -25,8 +27,25 @@ data class DateRange(val start: LocalDate, val end: LocalDate)
 @HiltViewModel
 class ReportViewModel @Inject constructor(
     private val repository: PowerHistoryRepository,
+    private val appPreferences: AppPreferences,
     stateHolder: MonitoringStateHolder
 ) : ViewModel() {
+
+    // Franja horaria configurable del reporte "Franja horaria" (ej. consumo
+    // nocturno 10pm-8am) — persistida para que el usuario no tenga que
+    // reconfigurarla cada vez que entra al reporte.
+    val nightWindowStartHour: StateFlow<Int> = appPreferences.nightWindowStartHour
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), 22)
+    val nightWindowEndHour: StateFlow<Int> = appPreferences.nightWindowEndHour
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), 8)
+
+    fun setNightWindowStartHour(hour: Int) {
+        viewModelScope.launch { appPreferences.setNightWindowStartHour(hour) }
+    }
+
+    fun setNightWindowEndHour(hour: Int) {
+        viewModelScope.launch { appPreferences.setNightWindowEndHour(hour) }
+    }
 
     // Misma fuente que el Panel (guía sección 5): estado en vivo sin
     // debounce para "con/sin corriente ahora", y lastGridChangeAt del
@@ -54,7 +73,7 @@ class ReportViewModel @Inject constructor(
      * independiente del filtro de fecha de arriba, siempre muestran
      * Hoy/7 días/30 días (las únicas ventanas que el historial local de
      * 30 días puede calcular con precisión real). */
-    val allReadingsLast30Days: StateFlow<List<PowerReadingEntity>> = repository.observeLast30Days()
+    val allReadingsInRetention: StateFlow<List<PowerReadingEntity>> = repository.observeLastRetentionWindow()
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
 

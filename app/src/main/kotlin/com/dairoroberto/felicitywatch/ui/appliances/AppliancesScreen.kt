@@ -4,6 +4,8 @@ import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -14,6 +16,7 @@ import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
@@ -35,6 +38,7 @@ import androidx.compose.material.icons.filled.ExpandMore
 import androidx.compose.material.icons.filled.MeetingRoom
 import androidx.compose.material.icons.filled.PowerOff
 import androidx.compose.material.icons.filled.PowerSettingsNew
+import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Upload
 import androidx.compose.material.icons.filled.Verified
 import androidx.compose.material.icons.filled.Warning
@@ -891,12 +895,21 @@ private fun ApplianceActivityList(
                                 fontWeight = FontWeight.Medium,
                                 color = colors.textHi
                             )
-                            // Un equipo confirmado da más confianza a la
-                            // propuesta que uno con consumo solo declarado.
-                            if (match?.isConfirmed == true) {
+                            // Confirmado por el usuario: se marca aparte del
+                            // icono de "consumo aprendido" porque son cosas
+                            // distintas — uno dice que ESTE evento fue este
+                            // equipo, el otro que su consumo ya se midio.
+                            if (event.userConfirmed) {
+                                Text(
+                                    "confirmado",
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = colors.green,
+                                    modifier = Modifier.padding(start = 5.dp)
+                                )
+                            } else if (match?.isConfirmed == true) {
                                 Icon(
                                     Icons.Default.Verified,
-                                    contentDescription = "Consumo confirmado",
+                                    contentDescription = "Consumo aprendido",
                                     tint = colors.green,
                                     modifier = Modifier.padding(start = 4.dp).size(12.dp)
                                 )
@@ -1000,11 +1013,25 @@ private fun EventMatchDialog(
     val hourFormatter = remember { DateTimeFormatter.ofPattern("hh:mm").withLocale(Locale("es", "ES")) }
     val ampm = if (zoned.hour < 12) "am" else "pm"
 
+    // Buscador manual: cerrado por defecto para no competir con la propuesta,
+    // pero abierto de entrada cuando no hay ningun candidato — ahi el buscador
+    // ES la unica accion posible y esconderlo tras un boton sobra.
+    var searchOpen by remember(event) { mutableStateOf(candidates.isEmpty()) }
+    var applianceQuery by remember(event) { mutableStateOf("") }
+
     AlertDialog(
         onDismissRequest = onDismiss,
         title = { Text(if (event.turnedOn) "Se encendió algo" else "Se apagó algo") },
         text = {
-            Column {
+            // Scroll + imePadding: sin esto, al abrir el teclado para buscar el
+            // equipo, el campo de texto quedaba TAPADO por el teclado y no se
+            // veia lo que se escribia. El AlertDialog no maneja el IME por su
+            // cuenta ni deja desplazar su contenido.
+            Column(
+                Modifier
+                    .imePadding()
+                    .verticalScroll(rememberScrollState())
+            ) {
                 Text(
                     "${if (event.deltaWatts > 0) "+" else ""}${event.deltaWatts} W " +
                         "a las ${hourFormatter.format(zoned)}$ampm · total ${event.totalWattsAfter} W",
@@ -1044,102 +1071,107 @@ private fun EventMatchDialog(
                     )
 
                     candidates.forEachIndexed { index, candidate ->
-                        val tint = roomColor(candidate.room)
-                        Row(
-                            verticalAlignment = Alignment.CenterVertically,
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .padding(top = 8.dp)
-                                .clip(RoundedCornerShape(10.dp))
-                                .clickable { onConfirm(candidate) }
-                                .padding(vertical = 4.dp)
-                        ) {
-                            Box(
-                                Modifier
-                                    .size(8.dp)
-                                    .clip(CircleShape)
-                                    .background(tint)
-                            )
-                            Column(Modifier.weight(1f).padding(start = 8.dp)) {
-                                Row(verticalAlignment = Alignment.CenterVertically) {
-                                    Text(
-                                        candidate.name,
-                                        style = MaterialTheme.typography.bodySmall,
-                                        fontWeight = FontWeight.Medium,
-                                        color = colors.textHi
-                                    )
-                                    if (candidate.isConfirmed) {
-                                        Icon(
-                                            Icons.Default.Verified,
-                                            contentDescription = "Consumo aprendido",
-                                            tint = colors.green,
-                                            modifier = Modifier.padding(start = 4.dp).size(12.dp)
-                                        )
-                                    }
-                                    // El primero es el que la app propone en
-                                    // la bitácora; se marca para que se vea
-                                    // por qué se eligió ese y no otro.
-                                    if (index == 0 && candidates.size > 1) {
-                                        Text(
-                                            "más cercano",
-                                            style = MaterialTheme.typography.labelSmall,
-                                            color = colors.accent,
-                                            modifier = Modifier.padding(start = 6.dp)
-                                        )
-                                    }
-                                }
-                                Text(
-                                    buildString {
-                                        if (candidate.room.isNotBlank()) {
-                                            append(candidate.room)
-                                            append(" · ")
-                                        }
-                                        if (candidate.isConfirmed) {
-                                            append("${candidate.confirmedWatts} W aprendidos")
-                                            if (candidate.confirmationCount > 1) {
-                                                append(" (${candidate.confirmationCount} veces)")
-                                            }
-                                        } else if (candidate.hasRange) {
-                                            append("${candidate.minWatts}–${candidate.watts} W declarados")
-                                        } else {
-                                            append("${candidate.watts} W declarados")
-                                        }
-                                    },
-                                    style = MaterialTheme.typography.labelSmall,
-                                    color = colors.textMid
-                                )
-                                // Avisa que confirmar este equipo ajustará
-                                // también a sus similares, para que el
-                                // usuario no se sorprenda del cambio.
-                                if (candidate.hasSimilarGroup) {
-                                    val groupSize = appliances.count {
-                                        it.similarGroup.equals(candidate.similarGroup, ignoreCase = true)
-                                    }
-                                    if (groupSize > 1) {
-                                        Text(
-                                            "Ajustará los $groupSize equipos de \"${candidate.similarGroup}\"",
-                                            style = MaterialTheme.typography.labelSmall,
-                                            color = colors.accent
-                                        )
-                                    }
-                                }
-                            }
-                            OutlinedButton(
-                                onClick = { onConfirm(candidate) },
-                                contentPadding = PaddingValues(horizontal = 12.dp, vertical = 4.dp)
-                            ) {
-                                Text("Fue este", style = MaterialTheme.typography.labelSmall)
-                            }
+                        ApplianceChoiceRow(
+                            appliance = candidate,
+                            appliances = appliances,
+                            // El primero es el que la app propone en la
+                            // bitácora; se marca para que se vea por qué se
+                            // eligió ese y no otro.
+                            label = if (index == 0 && candidates.size > 1) "más cercano" else null,
+                            magnitude = null,
+                            onConfirm = onConfirm
+                        )
+                    }
+                }
+
+                // Buscador de TODO el inventario: la propuesta por consumo se
+                // equivoca cuando dos equipos se encendieron a la vez (el
+                // escalón es la suma) o cuando el consumo declarado está lejos
+                // del real. Sin esta salida el usuario no podía corregirlo, y
+                // confirmar un equipo equivocado enseñaría un dato falso.
+                // TODO el inventario, sin excluir los candidatos: si los pocos
+                // equipos registrados son todos candidatos, excluirlos dejaba
+                // la busqueda vacia — que es justo lo que pasaba. El usuario
+                // puede querer confirmar uno de la propuesta desde aqui igual.
+                val others = remember(appliances, applianceQuery) {
+                    val query = applianceQuery.trim()
+                    if (query.isBlank()) {
+                        appliances
+                    } else {
+                        appliances.filter {
+                            it.name.contains(query, ignoreCase = true) ||
+                                it.room.contains(query, ignoreCase = true)
                         }
                     }
+                }
 
+                HorizontalDivider(modifier = Modifier.padding(vertical = 12.dp), color = colors.hairline)
+
+                if (!searchOpen) {
+                    // Un solo camino: "No fue ninguno" abre la busqueda. Antes
+                    // habia dos botones que hacian lo mismo, uno de mas.
+                    TextButton(
+                        onClick = { searchOpen = true },
+                        contentPadding = PaddingValues(0.dp)
+                    ) {
+                        Icon(
+                            Icons.Default.Search,
+                            contentDescription = null,
+                            modifier = Modifier.size(15.dp)
+                        )
+                        Text(
+                            "No fue ninguno de estos",
+                            style = MaterialTheme.typography.labelSmall,
+                            modifier = Modifier.padding(start = 5.dp)
+                        )
+                    }
+                } else {
                     Text(
-                        "Si no fue ninguno de estos, no confirmes nada: un dato equivocado " +
-                            "empeoraría las detecciones siguientes.",
-                        style = MaterialTheme.typography.labelSmall,
-                        color = colors.textLow,
-                        modifier = Modifier.padding(top = 12.dp)
+                        "Busca y selecciona el equipo que fue:",
+                        style = MaterialTheme.typography.bodySmall,
+                        fontWeight = FontWeight.Medium,
+                        color = colors.textHi
                     )
+                    OutlinedTextField(
+                        value = applianceQuery,
+                        onValueChange = { applianceQuery = it },
+                        label = { Text("Nombre o local") },
+                        singleLine = true,
+                        leadingIcon = {
+                            Icon(
+                                Icons.Default.Search,
+                                contentDescription = null,
+                                modifier = Modifier.size(17.dp)
+                            )
+                        },
+                        modifier = Modifier.fillMaxWidth().padding(top = 8.dp)
+                    )
+
+                    if (others.isEmpty()) {
+                        Text(
+                            if (appliances.isEmpty()) {
+                                "Tu inventario está vacío. Registra tus equipos en la pestaña Inventario."
+                            } else {
+                                "Ningún equipo coincide con esa búsqueda."
+                            },
+                            style = MaterialTheme.typography.labelSmall,
+                            color = colors.textLow,
+                            modifier = Modifier.padding(top = 10.dp)
+                        )
+                    } else {
+                        others.forEach { other ->
+                            ApplianceChoiceRow(
+                                appliance = other,
+                                appliances = appliances,
+                                label = null,
+                                // El salto detectado se compara con el rango
+                                // del equipo elegido: si queda fuera, se avisa
+                                // antes de que confirme un valor absurdo.
+                                magnitude = magnitude,
+                                onConfirm = onConfirm
+                            )
+                        }
+                    }
                 }
             }
         },
@@ -1493,6 +1525,124 @@ private fun RoomAutocompleteField(
                     Text("Usar ese", style = MaterialTheme.typography.labelSmall)
                 }
             }
+        }
+    }
+}
+
+/**
+ * Fila de equipo seleccionable dentro del modal de actividad.
+ *
+ * Se comparte entre los candidatos que la app propone y los resultados del
+ * buscador manual: son la misma decisión ("fue este equipo") y deben verse
+ * igual, aunque lleguen por caminos distintos.
+ */
+@Composable
+private fun ApplianceChoiceRow(
+    appliance: ApplianceEntity,
+    /** Catálogo completo, solo para contar los miembros del grupo similar. */
+    appliances: List<ApplianceEntity>,
+    /** Etiqueta corta junto al nombre, ej. "más cercano". */
+    label: String?,
+    /** Salto detectado en watts. Cuando se pasa, se muestra la diferencia
+     * contra el consumo declarado — en el buscador manual el equipo elegido
+     * puede estar lejos del salto, y verlo antes de confirmar evita enseñarle
+     * a la app un valor absurdo. */
+    magnitude: Int?,
+    onConfirm: (ApplianceEntity) -> Unit
+) {
+    val colors = LocalFelicityColors.current
+    val tint = roomColor(appliance.room)
+
+    Row(
+        verticalAlignment = Alignment.CenterVertically,
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(top = 8.dp)
+            .clip(RoundedCornerShape(10.dp))
+            .clickable { onConfirm(appliance) }
+            .padding(vertical = 4.dp)
+    ) {
+        Box(
+            Modifier
+                .size(8.dp)
+                .clip(CircleShape)
+                .background(tint)
+        )
+        Column(Modifier.weight(1f).padding(start = 8.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text(
+                    appliance.name,
+                    style = MaterialTheme.typography.bodySmall,
+                    fontWeight = FontWeight.Medium,
+                    color = colors.textHi
+                )
+                if (appliance.isConfirmed) {
+                    Icon(
+                        Icons.Default.Verified,
+                        contentDescription = "Consumo aprendido",
+                        tint = colors.green,
+                        modifier = Modifier.padding(start = 4.dp).size(12.dp)
+                    )
+                }
+                if (label != null) {
+                    Text(
+                        label,
+                        style = MaterialTheme.typography.labelSmall,
+                        color = colors.accent,
+                        modifier = Modifier.padding(start = 6.dp)
+                    )
+                }
+            }
+            Text(
+                buildString {
+                    if (appliance.room.isNotBlank()) {
+                        append(appliance.room)
+                        append(" · ")
+                    }
+                    if (appliance.isConfirmed) {
+                        append("${appliance.confirmedWatts} W aprendidos")
+                        if (appliance.confirmationCount > 1) {
+                            append(" (${appliance.confirmationCount} veces)")
+                        }
+                    } else if (appliance.hasRange) {
+                        append("${appliance.minWatts}–${appliance.watts} W declarados")
+                    } else {
+                        append("${appliance.watts} W declarados")
+                    }
+                },
+                style = MaterialTheme.typography.labelSmall,
+                color = colors.textMid
+            )
+            // Aviso de desajuste: si el equipo elegido a mano está muy lejos
+            // del salto detectado, confirmarlo movería su consumo aprendido a
+            // un valor que probablemente no le corresponde.
+            if (magnitude != null && !appliance.matches(magnitude)) {
+                Text(
+                    "El salto detectado ($magnitude W) queda fuera de su rango",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = colors.error
+                )
+            }
+            // Avisa que confirmar este equipo ajustará también a sus
+            // similares, para que el usuario no se sorprenda del cambio.
+            if (appliance.hasSimilarGroup) {
+                val groupSize = appliances.count {
+                    it.similarGroup.equals(appliance.similarGroup, ignoreCase = true)
+                }
+                if (groupSize > 1) {
+                    Text(
+                        "Ajustará los $groupSize equipos de \"${appliance.similarGroup}\"",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = colors.accent
+                    )
+                }
+            }
+        }
+        OutlinedButton(
+            onClick = { onConfirm(appliance) },
+            contentPadding = PaddingValues(horizontal = 12.dp, vertical = 4.dp)
+        ) {
+            Text("Fue este", style = MaterialTheme.typography.labelSmall)
         }
     }
 }

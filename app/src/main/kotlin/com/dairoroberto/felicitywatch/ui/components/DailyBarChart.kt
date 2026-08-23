@@ -42,7 +42,15 @@ fun DailyBarChart(
     maxValueOverride: Float? = null,
     /** Alto del gráfico — configurable para vistas compactas (ej. dos
      * gráficos lado a lado) sin tocar el resto de reportes. */
-    chartHeight: androidx.compose.ui.unit.Dp = 200.dp
+    chartHeight: androidx.compose.ui.unit.Dp = 200.dp,
+    /** Segundo segmento apilado ENCIMA de [BarChartEntry.value] (ej. consumo
+     * "sin corriente" apilado sobre "con corriente") — mismo índice que
+     * [entries]. Si es null, la barra es de un solo color como antes. El
+     * máximo del eje Y se calcula sobre primario+secundario para que la
+     * barra completa quepa. */
+    secondaryValues: List<Float>? = null,
+    secondaryColor: Color = barColor,
+    secondaryValueFormatter: (Float) -> String = valueFormatter
 ) {
     var selectedIndex by remember(entries) { mutableStateOf<Int?>(null) }
 
@@ -61,7 +69,8 @@ fun DailyBarChart(
     ) {
         if (entries.isEmpty()) return@Canvas
 
-        val maxValue = (maxValueOverride ?: entries.maxOf { it.value }).coerceAtLeast(0.01f)
+        val totalValues = entries.mapIndexed { i, e -> e.value + (secondaryValues?.getOrNull(i) ?: 0f) }
+        val maxValue = (maxValueOverride ?: totalValues.maxOrNull() ?: 0f).coerceAtLeast(0.01f)
         val dashEffect = androidx.compose.ui.graphics.PathEffect.dashPathEffect(floatArrayOf(6f, 8f))
         val gridLines = 4
         for (i in 0..gridLines) {
@@ -80,25 +89,44 @@ fun DailyBarChart(
         val barGap = (slotWidth - barWidth) / 2f
 
         entries.forEachIndexed { index, entry ->
-            val barHeight = (entry.value / maxValue) * size.height * 0.85f
+            val secondary = secondaryValues?.getOrNull(index) ?: 0f
+            val primaryHeight = (entry.value / maxValue) * size.height * 0.85f
+            val secondaryHeight = (secondary / maxValue) * size.height * 0.85f
             val left = index * slotWidth + barGap
-            val top = size.height - barHeight
             val isSelected = selectedIndex == index
-            drawRoundRect(
-                color = if (isSelected) barColor else barColor.copy(alpha = 0.75f),
-                topLeft = Offset(left, top),
-                size = androidx.compose.ui.geometry.Size(barWidth, barHeight),
-                cornerRadius = androidx.compose.ui.geometry.CornerRadius(6f, 6f)
-            )
+            val alpha = if (isSelected) 1f else 0.75f
+
+            if (secondaryHeight > 0f) {
+                drawRoundRect(
+                    color = secondaryColor.copy(alpha = alpha),
+                    topLeft = Offset(left, size.height - primaryHeight - secondaryHeight),
+                    size = androidx.compose.ui.geometry.Size(barWidth, secondaryHeight),
+                    cornerRadius = androidx.compose.ui.geometry.CornerRadius(6f, 6f)
+                )
+            }
+            if (primaryHeight > 0f) {
+                drawRoundRect(
+                    color = barColor.copy(alpha = alpha),
+                    topLeft = Offset(left, size.height - primaryHeight),
+                    size = androidx.compose.ui.geometry.Size(barWidth, primaryHeight),
+                    cornerRadius = androidx.compose.ui.geometry.CornerRadius(6f, 6f)
+                )
+            }
         }
 
         val index = selectedIndex
         if (index != null && index in entries.indices) {
             val entry = entries[index]
-            val barHeight = (entry.value / maxValue) * size.height * 0.85f
+            val secondary = secondaryValues?.getOrNull(index) ?: 0f
+            val totalHeight = ((entry.value + secondary) / maxValue) * size.height * 0.85f
             val centerX = index * slotWidth + slotWidth / 2f
-            val top = size.height - barHeight
-            drawTooltipAbove(centerX, top, entry.label, valueFormatter(entry.value), barColor, size.width)
+            val top = size.height - totalHeight
+            val valueText = if (secondaryValues != null) {
+                "${valueFormatter(entry.value)} + ${secondaryValueFormatter(secondary)}"
+            } else {
+                valueFormatter(entry.value)
+            }
+            drawTooltipAbove(centerX, top, entry.label, valueText, barColor, size.width)
         }
     }
 }

@@ -33,6 +33,11 @@ data class FelicitySemanticColors(
      * directo de DangerBorder/ChartRed (fijos, pensados solo para fondo
      * oscuro) en textos e indicadores de "sin corriente"/"offline". */
     val error: Color,
+    /** Serie de generación solar (ámbar). El verde ya lo usan el estado "con
+     * corriente" y la batería cargando, así que reservarlo para PV hacía que
+     * tres cosas distintas compartieran color. El ámbar además es el color
+     * natural que se asocia al sol. */
+    val pvAccent: Color,
     /** Serie "Carga" en gráficos multilínea (morado) — antes era un
      * Color(0xFF...) suelto en ReportScreen sin variante clara/oscura. */
     val chargeAccent: Color
@@ -50,7 +55,8 @@ val DarkFelicityColors = FelicitySemanticColors(
     dangerBg = DangerBg,
     accent = Teal,
     error = DarkError,
-    chargeAccent = ChargeAccent
+    chargeAccent = ChargeAccent,
+    pvAccent = Color(0xFFFFB020)
 )
 
 val LightFelicityColors = FelicitySemanticColors(
@@ -65,7 +71,8 @@ val LightFelicityColors = FelicitySemanticColors(
     dangerBg = LightDangerBg,
     accent = LightAccent,
     error = LightError,
-    chargeAccent = LightChargeAccent
+    chargeAccent = LightChargeAccent,
+    pvAccent = Color(0xFFC77A00)
 )
 
 val LocalFelicityColors = staticCompositionLocalOf { DarkFelicityColors }

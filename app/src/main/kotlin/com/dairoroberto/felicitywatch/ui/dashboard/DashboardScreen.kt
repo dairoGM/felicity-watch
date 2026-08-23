@@ -23,6 +23,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ArrowDownward
 import androidx.compose.material.icons.filled.ArrowUpward
+import androidx.compose.material.icons.filled.Bolt
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.Error
 import androidx.compose.material.icons.filled.Phone
@@ -56,6 +57,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.hilt.navigation.compose.hiltViewModel
 import com.dairoroberto.felicitywatch.domain.model.GridState
+import com.dairoroberto.felicitywatch.ui.components.MetricSparkline
 import com.dairoroberto.felicitywatch.ui.components.ProgressRing
 import com.dairoroberto.felicitywatch.ui.theme.JetBrainsMonoFamily
 import com.dairoroberto.felicitywatch.ui.theme.LocalFelicityColors
@@ -66,6 +68,7 @@ import java.time.ZoneId
 import java.time.format.DateTimeFormatter
 import java.time.format.FormatStyle
 import java.util.Locale
+import kotlin.math.roundToInt
 
 /**
  * Jerarquía visual pensada para lo que el cliente necesita ver primero:
@@ -84,6 +87,7 @@ fun DashboardScreen(viewModel: DashboardViewModel = hiltViewModel()) {
     val state by viewModel.uiState.collectAsState()
     val isRefreshing by viewModel.isRefreshing.collectAsState()
     val pollingIntervalSeconds by viewModel.pollingIntervalSeconds.collectAsState()
+    val lowVoltageThreshold by viewModel.lowVoltageThreshold.collectAsState()
 
     // Tick cada segundo: alimenta tanto el reloj en vivo del Panel como los
     // textos "hace X min", que de lo contrario quedarían congelados hasta
@@ -113,7 +117,7 @@ fun DashboardScreen(viewModel: DashboardViewModel = hiltViewModel()) {
     metricDetail?.let { detail ->
         MetricDetailDialog(
             detail = detail,
-            readings = state.allReadingsLast30Days,
+            readings = state.allReadingsInRetention,
             onDismiss = { metricDetail = null }
         )
     }
@@ -129,7 +133,7 @@ fun DashboardScreen(viewModel: DashboardViewModel = hiltViewModel()) {
             verticalArrangement = Arrangement.spacedBy(14.dp)
         ) {
             item { ClockAndConnectionRow(state, now, pollingIntervalSeconds) }
-            item { GridHeroCard(state, now) }
+            item { GridHeroCard(state, now, lowVoltageThreshold) }
             item { MetricsRow(state, now) { detail -> metricDetail = detail } }
             // Autonomía (anillo) y Excedente Solar (dos barras PV/Consumo)
             // lado a lado — el segundo reemplaza al antiguo anillo de "Carga
@@ -385,7 +389,11 @@ private fun secondsUntilNextReading(
 }
 
 @Composable
-private fun GridHeroCard(state: DashboardUiState, now: Instant) {
+private fun GridHeroCard(
+    state: DashboardUiState,
+    now: Instant,
+    lowVoltageThreshold: Int
+) {
     val colors = LocalFelicityColors.current
     val online = state.liveGridState == GridState.ONLINE
     val unknown = state.liveGridState == GridState.UNKNOWN
@@ -396,8 +404,8 @@ private fun GridHeroCard(state: DashboardUiState, now: Instant) {
     // lastGridChangeAt (que solo se actualiza cuando una regla de alerta
     // se dispara y podía quedar desfasado) — así el Panel y el Reporte
     // nunca pueden mostrar un "lleva X tiempo" distinto entre sí.
-    val segments = remember(state.allReadingsLast30Days, now) {
-        com.dairoroberto.felicitywatch.domain.usecase.buildGridSegments(state.allReadingsLast30Days, now.toEpochMilli())
+    val segments = remember(state.allReadingsInRetention, now) {
+        com.dairoroberto.felicitywatch.domain.usecase.buildGridSegments(state.allReadingsInRetention, now.toEpochMilli())
     }
     val lastSegment = segments.lastOrNull()
     val elapsedText = if (!unknown && lastSegment != null && lastSegment.online == online) {
@@ -416,8 +424,15 @@ private fun GridHeroCard(state: DashboardUiState, now: Instant) {
         modifier = Modifier.fillMaxWidth()
     ) {
         Column(Modifier.padding(18.dp)) {
-            Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
-                Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.weight(1f)) {
+            // Alineado arriba: con dos pastillas apiladas a la derecha, centrar
+            // dejaria el titulo "ESTADO DE LA RED" a media altura del par.
+            Row(verticalAlignment = Alignment.Top, modifier = Modifier.fillMaxWidth()) {
+                // Padding vertical pequeno: alinea el titulo con la primera
+                // pastilla, que tiene su propio padding interno.
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    modifier = Modifier.weight(1f).padding(top = 4.dp)
+                ) {
                     Box(
                         Modifier
                             .size(10.dp)
@@ -431,32 +446,14 @@ private fun GridHeroCard(state: DashboardUiState, now: Instant) {
                         fontWeight = FontWeight.Bold
                     )
                 }
-                // Badge de tiempo transcurrido — el indicador que pidió el
-                // cliente ("3h 32min con corriente"), tratado como un
-                // elemento visual propio (no un texto secundario gris) para
-                // que destaque igual que el estado principal.
+                // Solo el tiempo transcurrido: el voltaje va al pie del card,
+                // junto a la hora de inicio del tramo.
                 if (elapsedText != null) {
-                    Row(
-                        modifier = Modifier
-                            .clip(RoundedCornerShape(50))
-                            .background(accent.copy(alpha = 0.14f))
-                            .padding(horizontal = 10.dp, vertical = 5.dp),
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Icon(
-                            Icons.Default.Schedule,
-                            contentDescription = null,
-                            tint = accent,
-                            modifier = Modifier.size(13.dp)
-                        )
-                        Text(
-                            elapsedText,
-                            style = MaterialTheme.typography.labelSmall,
-                            fontWeight = FontWeight.Bold,
-                            color = accent,
-                            modifier = Modifier.padding(start = 4.dp)
-                        )
-                    }
+                    StatusPill(
+                        icon = Icons.Default.Schedule,
+                        text = elapsedText,
+                        accent = accent
+                    )
                 }
             }
             Text(
@@ -493,12 +490,37 @@ private fun GridHeroCard(state: DashboardUiState, now: Instant) {
                     )
                 }
             } else {
-                Text(
-                    gridSinceLabel(lastSegment, online, unknown),
-                    style = MaterialTheme.typography.bodySmall,
-                    color = colors.textMid,
-                    modifier = Modifier.padding(top = 8.dp)
-                )
+                // Pie del card: la hora de inicio del tramo a la izquierda y el
+                // voltaje de la fuente que alimenta la casa a la derecha. Son
+                // los dos datos de contexto del estado, así que comparten fila
+                // en vez de apilarse y alargar el card.
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    modifier = Modifier.fillMaxWidth().padding(top = 8.dp)
+                ) {
+                    Text(
+                        gridSinceLabel(lastSegment, online, unknown),
+                        style = MaterialTheme.typography.bodySmall,
+                        color = colors.textMid,
+                        modifier = Modifier.weight(1f)
+                    )
+                    // Con corriente, el voltaje de la calle; sin ella, el de salida
+                    // del inversor hacia la casa. Su color es INDEPENDIENTE del
+                    // `accent` de arriba (que solo refleja si hay o no corriente):
+                    // antes reusaba ese mismo color, y sin corriente ya era rojo por
+                    // el estado de red, asi que la pastilla salia roja aunque el
+                    // voltaje estuviera perfectamente normal. Aqui rojo significa
+                    // SOLO una cosa: el voltaje cayo por debajo del umbral.
+                    val volts = currentVoltage(state, online, unknown)
+                    if (volts != null) {
+                        val low = volts < lowVoltageThreshold
+                        StatusPill(
+                            icon = Icons.Default.Bolt,
+                            text = formatVolts(volts),
+                            accent = if (low) MaterialTheme.colorScheme.error else colors.green
+                        )
+                    }
+                }
             }
         }
     }
@@ -548,7 +570,9 @@ private fun MetricsRow(
                 readingError = state.inverterError
             ),
             lastReadingAt = state.lastSuccessfulReadingAt,
-            now = now
+            now = now,
+            sparkline = pvHistoryToday(state),
+            sparklineColor = LocalFelicityColors.current.pvAccent
         )
         val loadPower = state.inverter?.loadPowerWatts
         val soc = state.battery?.socPercent
@@ -566,16 +590,20 @@ private fun MetricsRow(
             else -> null
         }
         val colors = LocalFelicityColors.current
-        val timeToFullText = solarTimeToFullChargeLabel(state)
+        val timeToFullText = timeToFullChargeLabel(state)
         // Verde solo cuando hay un estimado real de llegar al 100%; los
         // avisos de excedente insuficiente van en tono neutro para no
         // leerse como una buena noticia.
-        val timeToFullColor = if (timeToFullText?.endsWith("al 100%") == true) colors.green else colors.textMid
+        val timeToFullColor = if (timeToFullText != null &&
+            timeToFullText != "Sin excedente" &&
+            timeToFullText != "Carga muy lenta"
+        ) colors.green else colors.textMid
+        val chargeWatts = batteryChargeWatts(state)
         MetricCard(
             modifier = Modifier.weight(1f).fillMaxHeight(),
             label = "BATERÍA",
             onClick = { onOpenDetail(MetricDetail.BATTERY) },
-            valueText = state.battery?.socPercent?.toString() ?: "—",
+            valueText = soc?.toString() ?: "—",
             unit = "%",
             errorReason = missingValueReason(
                 readingExists = state.battery != null,
@@ -585,8 +613,22 @@ private fun MetricsRow(
             lastReadingAt = state.lastSuccessfulReadingAt,
             now = now,
             chargingIndicator = chargingIndicator,
-            highlightText = timeToFullText,
-            highlightColor = timeToFullColor
+            // Carga entrante y tiempo al 100% en la misma linea: "+630W" dice
+            // cuanto entra y "2h 39m" cuanto falta, que juntos se leen como
+            // una sola frase en vez de dos datos sueltos.
+            highlightText = when {
+                chargeWatts != null && timeToFullText != null ->
+                    "+" + formatPowerValue(chargeWatts) + formatPowerUnit(chargeWatts) +
+                        " · " + timeToFullText
+                chargeWatts != null ->
+                    "+" + formatPowerValue(chargeWatts) + formatPowerUnit(chargeWatts)
+                else -> timeToFullText
+            },
+            highlightColor = if (chargeWatts != null) colors.green else timeToFullColor,
+            highlightIcon = if (chargeWatts != null) Icons.Default.Bolt else Icons.Default.Schedule,
+            sparkline = socHistoryToday(state),
+            sparklineMax = 100f,
+            sparklineColor = colors.chargeAccent
         )
         MetricCard(
             modifier = Modifier.weight(1f).fillMaxHeight(),
@@ -600,7 +642,9 @@ private fun MetricsRow(
                 readingError = state.inverterError
             ),
             lastReadingAt = state.lastSuccessfulReadingAt,
-            now = now
+            now = now,
+            sparkline = loadHistoryToday(state),
+            sparklineColor = colors.accent
         )
     }
 }
@@ -650,7 +694,7 @@ private fun PvSurplusMiniCard(state: DashboardUiState, modifier: Modifier = Modi
                     verticalAlignment = Alignment.Bottom,
                     modifier = Modifier.height(104.dp)
                 ) {
-                    SurplusVerticalBar(label = "PV", value = pv, maxScale = maxScale, color = colors.green)
+                    SurplusVerticalBar(label = "PV", value = pv, maxScale = maxScale, color = colors.pvAccent)
                     SurplusVerticalBar(label = "Consumo", value = load, maxScale = maxScale, color = MaterialTheme.colorScheme.error)
                 }
             }
@@ -661,12 +705,25 @@ private fun PvSurplusMiniCard(state: DashboardUiState, modifier: Modifier = Modi
                 fontWeight = FontWeight.Bold,
                 modifier = Modifier.padding(top = 10.dp)
             )
+            // Con corriente de red el excedente NO es pv - load: la red cubre
+            // el consumo de la casa, así que todo el PV queda disponible para
+            // la batería. Restarle el consumo daba un número engañoso — con
+            // 1200 W de PV y 1300 W de consumo decía "100 W de déficit"
+            // estando la casa perfectamente alimentada por la calle.
+            val online = state.liveGridState == GridState.ONLINE
             val subtitle = if (pv != null && load != null) {
-                val surplus = pv - load
-                when {
-                    surplus > 0 -> "+${formatPowerValue(surplus)} ${formatPowerUnit(surplus)} de excedente"
-                    surplus < 0 -> "${formatPowerValue(-surplus)} ${formatPowerUnit(-surplus)} de déficit"
-                    else -> "PV y consumo equilibrados"
+                if (online) {
+                    when {
+                        pv > 0 -> "+${formatPowerValue(pv)} ${formatPowerUnit(pv)} disponible · la red cubre el consumo"
+                        else -> "Sin generación · la red cubre el consumo"
+                    }
+                } else {
+                    val surplus = pv - load
+                    when {
+                        surplus > 0 -> "+${formatPowerValue(surplus)} ${formatPowerUnit(surplus)} de excedente"
+                        surplus < 0 -> "${formatPowerValue(-surplus)} ${formatPowerUnit(-surplus)} de déficit"
+                        else -> "PV y consumo equilibrados"
+                    }
                 }
             } else {
                 "Sin datos suficientes"
@@ -761,11 +818,8 @@ private fun BatteryRuntimeRing(state: DashboardUiState, modifier: Modifier = Mod
     val voltage = state.battery?.voltage
     val onGrid = state.liveGridState == GridState.ONLINE
 
-    val runtimeHours: Double? = if (!onGrid && soc != null && loadWatts != null && loadWatts > 0 &&
-        capacityAh != null && capacityAh > 0 && voltage != null && voltage > 0
-    ) {
-        val availableWh = capacityAh * voltage * (soc / 100.0)
-        availableWh / loadWatts
+    val runtimeHours: Double? = if (!onGrid) {
+        com.dairoroberto.felicitywatch.domain.usecase.estimateBatteryRuntimeHours(soc, loadWatts, capacityAh, voltage)
     } else null
 
     val protected = onGrid && soc != null
@@ -869,23 +923,23 @@ private fun ProjectionCard(
 }
 
 /**
- * Tiempo estimado para que la batería llegue al 100% cargando SOLO con el
- * excedente solar (PV menos el consumo de la casa) — pensado para el
- * escenario sin corriente de red, donde el usuario necesita saber si le va
- * a alcanzar el sol del día para recargar.
+ * Tiempo estimado para que la batería llegue al 100% con la carga que está
+ * entrando AHORA, venga del sol o de la red.
  *
- * Fórmula: energía faltante (Wh) / excedente solar (W) = horas.
+ * Fórmula: energía faltante (Wh) / carga entrante (W) = horas.
  * La energía faltante es capacidadAh × voltaje × (100 − SOC) / 100, misma
  * base que usa el anillo de Autonomía para el cálculo inverso.
  *
- * Devuelve null (no se muestra nada) cuando el estimado no aplica o no es
- * calculable: con corriente de red (la carga no depende del sol), batería
- * ya al 100%, sin excedente solar (el PV no cubre ni el consumo, así que
- * no está cargando), o si falta algún dato del equipo.
+ * Antes esto solo se calculaba SIN corriente de red, partiendo del excedente
+ * solar. El problema es que con red presente el inversor también carga, y el
+ * usuario se quedaba sin el dato justo en el escenario más común. Ahora se
+ * apoya en [batteryChargeWatts], que resuelve de dónde viene la carga, así
+ * que el estimado aplica en ambos casos.
+ *
+ * Devuelve null cuando no aplica o no es calculable: batería al 100%, nada
+ * entrando, o falta algún dato del equipo.
  */
-private fun solarTimeToFullChargeLabel(state: DashboardUiState): String? {
-    if (state.liveGridState != GridState.OFFLINE) return null
-
+private fun timeToFullChargeLabel(state: DashboardUiState): String? {
     val soc = state.battery?.socPercent ?: return null
     if (soc >= 100) return null
 
@@ -893,30 +947,31 @@ private fun solarTimeToFullChargeLabel(state: DashboardUiState): String? {
     val voltage = state.battery?.voltage ?: return null
     if (capacityAh <= 0 || voltage <= 0) return null
 
-    val pvWatts = state.inverter?.pvPowerWatts ?: return null
-    val loadWatts = state.inverter?.loadPowerWatts ?: return null
-    val surplusWatts = pvWatts - loadWatts
-    // Sin excedente el consumo se está comiendo todo el PV: la batería no
-    // carga (o se descarga). Se dice explícitamente en vez de ocultar el
-    // dato, que dejaba al usuario sin saber si era un bug o un estado real.
-    if (surplusWatts <= 0) return "Sin excedente"
+    // Sin carga entrante no hay nada que estimar. Se distingue el caso "no
+    // está cargando" del caso "no se puede calcular": si hay PV pero el
+    // consumo se lo come todo, eso es información útil y se dice.
+    val chargeWatts = batteryChargeWatts(state)
+    if (chargeWatts == null || chargeWatts <= 0) {
+        val pv = state.inverter?.pvPowerWatts
+        val load = state.inverter?.loadPowerWatts
+        return if (state.liveGridState == GridState.OFFLINE && pv != null && load != null && pv <= load) {
+            "Sin excedente"
+        } else null
+    }
 
     val missingWh = capacityAh * voltage * ((100 - soc) / 100.0)
-    val hoursToFull = missingWh / surplusWatts
+    val hoursToFull = missingWh / chargeWatts
 
-    // Con excedentes muy bajos el estimado se dispara a decenas de horas.
-    // El número exacto ahí no significa nada (el sol se va mucho antes),
-    // pero el HECHO de que el excedente no alcanza sí es información
-    // valiosa — así que se comunica de forma cualitativa.
+    // Con carga muy baja el estimado se dispara a decenas de horas. El número
+    // exacto ahí no significa nada (el sol se va mucho antes), pero el HECHO
+    // de que no alcanza sí es información valiosa — se comunica de forma
+    // cualitativa en vez de ocultarlo.
     if (hoursToFull > 24) return "Carga muy lenta"
 
-    // Texto corto ("2h 39m", no "100% en 2h 39min"): el card es angosto y
-    // con el texto largo se cortaba a media palabra. El ícono de reloj y
-    // la flecha de "cargando" ya dan el contexto de qué representa.
     val totalMinutes = (hoursToFull * 60).toLong()
     val hours = totalMinutes / 60
     val minutes = totalMinutes % 60
-    return if (hours > 0) "${hours}h ${minutes}m al 100%" else "${minutes}m al 100%"
+    return if (hours > 0) "${hours}h ${minutes}m" else "${minutes}m"
 }
 
 private fun formatPowerValue(watts: Int): String =
@@ -961,6 +1016,18 @@ private fun MetricCard(
      * el tiempo estimado para llegar al 100% con la carga solar actual. */
     highlightText: String? = null,
     highlightColor: androidx.compose.ui.graphics.Color? = null,
+    /** Icono del highlight. Por defecto un reloj (proyecciones de tiempo);
+     * el rayo se usa cuando el dato es una medicion en vivo. */
+    highlightIcon: androidx.compose.ui.graphics.vector.ImageVector = Icons.Default.Schedule,
+    /** Tendencia del dia para la curva compacta al pie del card. Vacia = no
+     * se dibuja, pero el espacio se reserva igual. */
+    sparkline: List<Float> = emptyList(),
+    /** Techo fijo para la curva. Necesario en porcentajes, donde la altura
+     * debe significar lo mismo entre aperturas del Panel. */
+    sparklineMax: Float? = null,
+    /** Color de la curva. Por defecto el acento; cada metrica pasa el suyo
+     * para que la curva y el resto del card hablen del mismo dato. */
+    sparklineColor: androidx.compose.ui.graphics.Color? = null,
     /** Abre el detalle de la metrica. null = card no interactivo. */
     onClick: (() -> Unit)? = null
 ) {
@@ -1021,11 +1088,11 @@ private fun MetricCard(
             // uno tiene dato extra.
             Row(
                 verticalAlignment = Alignment.CenterVertically,
-                modifier = Modifier.padding(top = 6.dp).height(14.dp)
+                modifier = Modifier.padding(top = 4.dp).height(14.dp)
             ) {
                 if (highlightText != null) {
                     Icon(
-                        Icons.Default.Schedule,
+                        highlightIcon,
                         contentDescription = null,
                         tint = highlightColor ?: colors.textMid,
                         modifier = Modifier.size(12.dp)
@@ -1042,6 +1109,17 @@ private fun MetricCard(
                     )
                 }
             }
+            // Curva de tendencia del día, común a los tres cards: da sintonía
+            // visual entre ellos y contexto al número grande, que por sí solo
+            // no dice si viene subiendo o bajando. El alto se reserva siempre
+            // para que la fila no se descuadre mientras se acumulan lecturas.
+            MetricSparkline(
+                values = sparkline,
+                color = sparklineColor ?: colors.accent,
+                maxValueOverride = sparklineMax,
+                height = 24.dp,
+                modifier = Modifier.padding(top = 8.dp)
+            )
             if (errorReason != null) {
                 Text(
                     errorReason,
@@ -1139,5 +1217,184 @@ private fun ChannelChip(
                 Text(lastFired, style = MaterialTheme.typography.labelSmall, color = colors.textLow, maxLines = 1)
             }
         }
+    }
+}
+
+/**
+ * Watts que están ENTRANDO a la batería, para el card de Batería.
+ *
+ * Dos fuentes, en orden de preferencia:
+ *
+ * 1. La propia batería: voltaje x corriente es la potencia REAL medida por el
+ *    equipo. Es el dato bueno cuando está disponible.
+ * 2. PV menos consumo de la casa: el excedente solar, que es lo que queda
+ *    para la batería. Se usa como respaldo porque el campo `current` de la
+ *    batería no siempre viene en el snapshot.
+ *
+ * Devuelve null cuando no hay carga que mostrar (batería llena, o
+ * descargando) o cuando faltan los datos para calcularlo. El signo importa:
+ * un valor negativo significa que la batería se está descargando, y en ese
+ * caso este indicador no aplica — de eso ya informa la flecha del card.
+ */
+private fun batteryChargeWatts(state: DashboardUiState): Int? {
+    val soc = state.battery?.socPercent
+    // Al 100% el inversor deja de meter carga: mostrar watts ahí sería
+    // engañoso incluso si el equipo reporta una corriente residual.
+    if (soc != null && soc >= 100) return null
+
+    // Vía 1: medición directa de la batería. La corriente positiva es carga.
+    val voltage = state.battery?.voltage
+    val current = state.battery?.current
+    if (voltage != null && current != null && voltage > 0) {
+        val watts = voltage * current
+        // Se descarta el ruido cercano a cero: el equipo reporta corrientes
+        // mínimas en reposo que no son carga real.
+        if (watts >= MIN_MEANINGFUL_CHARGE_WATTS) return watts.roundToInt()
+        // Con corriente negativa (descargando) o casi nula no se cae a la
+        // vía 2: la medición directa ya respondió que no está cargando.
+        if (watts <= -MIN_MEANINGFUL_CHARGE_WATTS) return null
+    }
+
+    // Vía 2: estimación por balance de energía. Cuánto queda para la batería
+    // depende de quién esté cubriendo el consumo de la casa:
+    //
+    // - Con red: la calle cubre el consumo, así que todo el PV va a batería.
+    // - Sin red: la casa se alimenta del PV, y solo el sobrante carga.
+    //
+    // Antes se restaba el consumo en ambos casos, lo que subestimaba la carga
+    // con corriente presente (y podía dar cero teniendo la batería cargando).
+    val pv = state.inverter?.pvPowerWatts ?: return null
+    val available = if (state.liveGridState == GridState.ONLINE) {
+        pv
+    } else {
+        val load = state.inverter?.loadPowerWatts ?: return null
+        pv - load
+    }
+    return if (available >= MIN_MEANINGFUL_CHARGE_WATTS) available else null
+}
+
+/** Por debajo de esto no es carga, es ruido de medición del equipo. */
+private const val MIN_MEANINGFUL_CHARGE_WATTS = 10
+
+/**
+ * Serie del día de hoy para las curvas compactas de los cards.
+ *
+ * Se toma del historial de 30 días que el Panel ya tiene cargado, filtrando
+ * al día actual — no hace consultas nuevas. Las lecturas sin el campo pedido
+ * se descartan: un null no es un cero, y graficarlo como cero inventaría una
+ * caída que no ocurrió.
+ *
+ * Se limita a las últimas [SPARKLINE_MAX_POINTS] muestras porque en 24dp de
+ * alto y unos 90dp de ancho no hay resolución para más, y con el intervalo
+ * de 5s el día entero serían miles de puntos.
+ */
+private fun todaySeries(
+    state: DashboardUiState,
+    selector: (com.dairoroberto.felicitywatch.data.local.PowerReadingEntity) -> Int?
+): List<Float> {
+    val zone = ZoneId.systemDefault()
+    val today = java.time.LocalDate.now(zone)
+    val values = state.allReadingsInRetention
+        .asSequence()
+        .filter {
+            Instant.ofEpochMilli(it.timestampEpochMillis).atZone(zone).toLocalDate() == today
+        }
+        .mapNotNull { selector(it)?.toFloat() }
+        .toList()
+
+    if (values.size <= SPARKLINE_MAX_POINTS) return values
+    // Se muestrea de forma uniforme en vez de cortar el inicio: interesa la
+    // forma de TODO el día, no solo el último tramo.
+    val step = values.size.toFloat() / SPARKLINE_MAX_POINTS
+    return (0 until SPARKLINE_MAX_POINTS).map { values[(it * step).toInt()] }
+}
+
+private fun pvHistoryToday(state: DashboardUiState): List<Float> =
+    todaySeries(state) { it.pvPowerWatts }
+
+private fun socHistoryToday(state: DashboardUiState): List<Float> =
+    todaySeries(state) { it.socPercent }
+
+private fun loadHistoryToday(state: DashboardUiState): List<Float> =
+    todaySeries(state) { it.loadPowerWatts }
+
+/** Resolución máxima útil para una curva de ~90dp de ancho. */
+private const val SPARKLINE_MAX_POINTS = 60
+
+/**
+ * Voltaje de la fuente que está alimentando la casa ahora, en voltios.
+ *
+ * Con corriente de red: el voltaje de la calle (AC de entrada del inversor).
+ * Sin corriente: el voltaje de salida del banco de baterías, que es de donde
+ * sale la energía en ese momento.
+ *
+ * Devuelve null si el equipo no reporta el voltaje que corresponde al estado
+ * actual. Eso pasa de verdad: el voltaje de red no viene en el snapshot de
+ * todos los modelos, y la API no es consistente en el nombre del campo. Se
+ * prefiere no mostrar la pastilla antes que mostrar un valor equivocado o un
+ * "—" que el usuario leería como una falla.
+ */
+private fun currentVoltage(state: DashboardUiState, online: Boolean, unknown: Boolean): Double? {
+    if (unknown) return null
+
+    // Ambos son voltaje de SALIDA AC (110/120V), en la misma escala: el de
+    // la red cuando la calle alimenta la casa, el de salida del inversor
+    // cuando lo hace la bateria. NO se usa battery.voltage aqui: ese es el
+    // voltaje DC del banco (48V nominal, ~55V observado), una magnitud
+    // fisica distinta que no es comparable con el voltaje de red.
+    val volts = if (online) {
+        state.inverter?.gridVoltage
+    } else {
+        state.inverter?.outputVoltage
+    } ?: return null
+
+    // Un voltaje de 0 no es un dato útil: sería una contradicción del propio
+    // equipo estando la casa alimentada.
+    return if (volts > 0) volts else null
+}
+
+/** Un decimal: el voltaje fluctúa y más precisión sería ruido. */
+private fun formatVolts(volts: Double): String =
+    String.format(Locale("es", "ES"), "%.1f V", volts)
+
+/**
+ * Pastilla de dato instantáneo del estado de la red (tiempo transcurrido,
+ * voltaje).
+ *
+ * Se extrajo del badge de tiempo que ya existía para que el voltaje se vea
+ * exactamente igual: son dos lecturas del mismo estado y deben leerse como un
+ * par, no como un badge destacado más una nota al pie.
+ *
+ * Toma el color del estado (verde con corriente, rojo sin ella) en vez de un
+ * gris neutro, así el par completo refuerza de un vistazo si hay corriente.
+ */
+@Composable
+private fun StatusPill(
+    icon: androidx.compose.ui.graphics.vector.ImageVector,
+    text: String,
+    accent: Color
+) {
+    Row(
+        modifier = Modifier
+            .clip(RoundedCornerShape(50))
+            .background(accent.copy(alpha = 0.14f))
+            .padding(horizontal = 10.dp, vertical = 5.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Icon(
+            icon,
+            contentDescription = null,
+            tint = accent,
+            modifier = Modifier.size(13.dp)
+        )
+        Text(
+            text,
+            style = MaterialTheme.typography.labelSmall,
+            fontWeight = FontWeight.Bold,
+            color = accent,
+            maxLines = 1,
+            softWrap = false,
+            modifier = Modifier.padding(start = 4.dp)
+        )
     }
 }

@@ -16,6 +16,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Chat
 import androidx.compose.material.icons.filled.Notifications
+import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.RecordVoiceOver
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
@@ -26,6 +27,7 @@ import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Switch
 import androidx.compose.material3.SwitchDefaults
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
@@ -72,7 +74,8 @@ fun LazyListScope.alertRuleItems(rules: List<AlertRuleEntity>, viewModel: Alerts
             onMessageChange = { viewModel.updateMessage(rule, it) },
             onToggleVoice = { viewModel.toggleVoiceChannel(rule) },
             onTogglePush = { viewModel.togglePushChannel(rule) },
-            onToggleWhatsapp = { viewModel.toggleWhatsappChannel(rule) }
+            onToggleWhatsapp = { viewModel.toggleWhatsappChannel(rule) },
+            onTestRule = { viewModel.testRule(rule) }
         )
     }
 }
@@ -82,6 +85,8 @@ private fun titleFor(type: AlertRuleType): String = when (type) {
     AlertRuleType.GRID_ONLINE -> "Volvió la red"
     AlertRuleType.BATTERY_SOC_LOW -> "Batería baja"
     AlertRuleType.BATTERY_SOC_HIGH -> "Batería llena"
+    AlertRuleType.LOAD_HIGH -> "Consumo alto"
+    AlertRuleType.BATTERY_AUTONOMY_LOW -> "Autonomía baja"
 }
 
 private fun subtitleFor(type: AlertRuleType): String = when (type) {
@@ -89,11 +94,15 @@ private fun subtitleFor(type: AlertRuleType): String = when (type) {
     AlertRuleType.GRID_ONLINE -> "Se dispara cuando la potencia de red vuelve a superar el umbral"
     AlertRuleType.BATTERY_SOC_LOW -> "Se dispara cuando la carga baja del umbral"
     AlertRuleType.BATTERY_SOC_HIGH -> "Se dispara cuando la carga supera el umbral"
+    AlertRuleType.LOAD_HIGH -> "Se dispara cuando el consumo de la casa supera el umbral (el inversor es de 8kW)"
+    AlertRuleType.BATTERY_AUTONOMY_LOW -> "Se dispara cuando el anillo de Autonomía del Panel se pone en rojo (sin corriente de red)"
 }
 
 private fun thresholdUnitFor(type: AlertRuleType): String = when (type) {
     AlertRuleType.GRID_OFFLINE, AlertRuleType.GRID_ONLINE -> "W"
     AlertRuleType.BATTERY_SOC_LOW, AlertRuleType.BATTERY_SOC_HIGH -> "%"
+    AlertRuleType.LOAD_HIGH -> "W"
+    AlertRuleType.BATTERY_AUTONOMY_LOW -> "horas"
 }
 
 @Composable
@@ -105,7 +114,8 @@ private fun AlertRuleCard(
     onMessageChange: (String) -> Unit,
     onToggleVoice: () -> Unit,
     onTogglePush: () -> Unit,
-    onToggleWhatsapp: () -> Unit
+    onToggleWhatsapp: () -> Unit,
+    onTestRule: () -> Unit
 ) {
     val colors = LocalFelicityColors.current
     val unit = thresholdUnitFor(rule.type)
@@ -221,6 +231,24 @@ private fun AlertRuleCard(
                     .fillMaxWidth()
                     .padding(top = 16.dp)
             )
+
+            val usesToneInsteadOfVoice = rule.type == AlertRuleType.LOAD_HIGH || rule.type == AlertRuleType.BATTERY_AUTONOMY_LOW
+            if (usesToneInsteadOfVoice) {
+                Text(
+                    "La voz no lee este mensaje: suena un tono de aviso intenso en su lugar.",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = colors.textLow,
+                    modifier = Modifier.padding(top = 6.dp)
+                )
+            }
+
+            TextButton(
+                onClick = onTestRule,
+                modifier = Modifier.padding(top = 8.dp)
+            ) {
+                Icon(Icons.Default.PlayArrow, contentDescription = null, modifier = Modifier.padding(end = 6.dp))
+                Text("Probar esta alerta")
+            }
         }
     }
 }

@@ -28,12 +28,16 @@ class EvaluateAlertRulesUseCase @Inject constructor() {
 
     private data class SocConfig(val threshold: Double, val operator: ComparisonOperator, val debounceSeconds: Int)
     private val socDebouncers = mutableMapOf<Long, Pair<SocConfig, SocThresholdDebouncer>>()
+    private val loadDebouncers = mutableMapOf<Long, Pair<SocConfig, SocThresholdDebouncer>>()
+    private val autonomyDebouncers = mutableMapOf<Long, Pair<SocConfig, DoubleThresholdDebouncer>>()
 
     fun evaluate(rules: List<AlertRuleEntity>, reading: SystemReading, now: Instant): List<AlertTrigger> {
         val triggers = mutableListOf<AlertTrigger>()
 
         evaluateGridRules(rules, reading, now)?.let { triggers += it }
         triggers += evaluateSocRules(rules, reading, now)
+        triggers += evaluateLoadRules(rules, reading, now)
+        triggers += evaluateAutonomyRules(rules, reading, now)
 
         return triggers
     }
@@ -95,6 +99,93 @@ class EvaluateAlertRulesUseCase @Inject constructor() {
                     triggers += AlertTrigger(rule, rule.messageTemplate)
                 }
             }
+
+        return triggers
+    }
+
+    /**
+     * Consumo de la casa por encima del umbral (por defecto 7kW, con un
+     * inversor de 8k) — aviso de que se está cerca del límite del equipo,
+     * no un simple dato informativo.
+     */
+    private fun evaluateLoadRules(
+        rules: List<AlertRuleEntity>,
+        reading: SystemReading,
+        now: Instant
+    ): List<AlertTrigger> {
+        val loadWatts = reading.inverter?.loadPowerWatts ?: return emptyList()
+        val triggers = mutableListOf<AlertTrigger>()
+
+        rules
+            .filter { it.type == AlertRuleType.LOAD_HIGH }
+            .forEach { rule ->
+                val threshold = rule.thresholdValue
+                val operator = rule.comparisonOperator
+                if (!rule.enabled || threshold == null || operator == null) return@forEach
+
+                val config = SocConfig(threshold, operator, rule.debounceSeconds)
+                val cached = loadDebouncers[rule.id]
+                val debouncer = if (cached == null || cached.first != config) {
+                    SocThresholdDebouncer(config.debounceSeconds, config.threshold, config.operator).also {
+                        loadDebouncers[rule.id] = config to it
+                    }
+                } else {
+                    cached.second
+                }
+
+                if (debouncer.onNewReading(loadWatts, now) == true) {
+                    triggers += AlertTrigger(rule, rule.messageTemplate)
+                }
+            }
+
+        return triggers
+    }
+
+    /**
+     * Autonomía de batería baja (mismo umbral de horas que pone en rojo el
+     * anillo "AUTONOMÍA" del Panel — ver [estimateBatteryRuntimeHours]).
+     * Solo aplica SIN corriente de red: con red, la batería está protegida
+     * (cargando) y el anillo nunca se pone rojo, así que la alerta tampoco
+     * debe evaluarse en ese caso.
+     */
+    private fun evaluateAutonomyRules(
+        rules: List<AlertRuleEntity>,
+        reading: SystemReading,
+        now: Instant
+    ): List<AlertTrigger> {
+        val activeRules = rules.filter { it.type == AlertRuleType.BATTERY_AUTONOMY_LOW && it.enabled }
+        if (activeRules.isEmpty()) return emptyList()
+
+        val onGrid = (reading.inverter?.gridPowerWatts ?: 0) >= 1
+        if (onGrid) return emptyList()
+
+        val runtimeHours = estimateBatteryRuntimeHours(
+            socPercent = reading.battery?.socPercent,
+            loadWatts = reading.inverter?.loadPowerWatts,
+            capacityAh = reading.battery?.capacityAh,
+            voltage = reading.battery?.voltage
+        ) ?: return emptyList()
+
+        val triggers = mutableListOf<AlertTrigger>()
+        activeRules.forEach { rule ->
+            val threshold = rule.thresholdValue
+            val operator = rule.comparisonOperator
+            if (threshold == null || operator == null) return@forEach
+
+            val config = SocConfig(threshold, operator, rule.debounceSeconds)
+            val cached = autonomyDebouncers[rule.id]
+            val debouncer = if (cached == null || cached.first != config) {
+                DoubleThresholdDebouncer(config.debounceSeconds, config.threshold, config.operator).also {
+                    autonomyDebouncers[rule.id] = config to it
+                }
+            } else {
+                cached.second
+            }
+
+            if (debouncer.onNewReading(runtimeHours, now) == true) {
+                triggers += AlertTrigger(rule, rule.messageTemplate)
+            }
+        }
 
         return triggers
     }
