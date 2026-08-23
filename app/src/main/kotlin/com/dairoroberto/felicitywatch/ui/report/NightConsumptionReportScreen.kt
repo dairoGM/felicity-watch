@@ -21,8 +21,6 @@ import androidx.compose.material.icons.filled.ExpandMore
 import androidx.compose.material.icons.filled.NightsStay
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
-import androidx.compose.material3.FilterChip
-import androidx.compose.material3.FilterChipDefaults
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -179,6 +177,39 @@ private fun HourStepper(
     }
 }
 
+/**
+ * Selector de día de la semana con tamaño IDÉNTICO garantizado para los 7
+ * — FilterChip variaba de ancho entre chips a pesar de "Modifier.weight(1f)"
+ * porque Material3 dibuja un borde solo en el estado NO seleccionado, y ese
+ * trazo cambia el tamaño visual percibido de la pastilla. Aquí no hay
+ * borde en ningún estado: la selección se distingue solo por el color de
+ * fondo, así que las 7 cajas miden exactamente lo mismo siempre.
+ */
+@Composable
+private fun WeekdayChip(
+    label: String,
+    selected: Boolean,
+    onClick: () -> Unit,
+    colors: com.dairoroberto.felicitywatch.ui.theme.FelicitySemanticColors,
+    modifier: Modifier = Modifier
+) {
+    Box(
+        modifier = modifier
+            .height(36.dp)
+            .clip(RoundedCornerShape(10.dp))
+            .background(if (selected) colors.accent else colors.hairline.copy(alpha = 0.3f))
+            .clickable(onClick = onClick),
+        contentAlignment = Alignment.Center
+    ) {
+        Text(
+            label,
+            style = MaterialTheme.typography.labelSmall,
+            fontWeight = FontWeight.Bold,
+            color = if (selected) androidx.compose.ui.graphics.Color.White else colors.textMid
+        )
+    }
+}
+
 private fun hourLabel(hour: Int): String {
     val ampm = if (hour < 12) "am" else "pm"
     val display = if (hour % 12 == 0) 12 else hour % 12
@@ -226,7 +257,7 @@ private fun WindowListCard(
             val maxTotal = windows.maxOf { it.totalKwh }.coerceAtLeast(0.01)
             windows.forEachIndexed { index, window ->
                 if (index > 0) HorizontalDivider(modifier = Modifier.padding(vertical = 10.dp), color = colors.hairline)
-                WindowRow(window = window, maxTotal = maxTotal, colors = colors)
+                WindowRow(window = window, startHour = startHour, endHour = endHour, maxTotal = maxTotal, colors = colors)
             }
         }
     }
@@ -235,11 +266,20 @@ private fun WindowListCard(
 @Composable
 private fun WindowRow(
     window: WindowConsumption,
+    startHour: Int,
+    endHour: Int,
     maxTotal: Double,
     colors: com.dairoroberto.felicitywatch.ui.theme.FelicitySemanticColors
 ) {
     var expanded by remember(window.startDate) { mutableStateOf(false) }
     val dateFormatter = DateTimeFormatter.ofPattern("EEE d MMM").withLocale(Locale("es", "ES"))
+
+    // Rango completo (inicio Y fin), no solo la fecha de arranque: una
+    // ventana que cruza medianoche (ej. 22h→8h) termina al día SIGUIENTE,
+    // y mostrar solo "sáb 22 ago" no deja claro hasta cuándo llega.
+    val endDate = if (startHour > endHour) window.startDate.plusDays(1) else window.startDate
+    val rangeLabel = "${dateFormatter.format(window.startDate).replaceFirstChar { it.uppercase() }} " +
+        "${hourLabel(startHour)} → ${dateFormatter.format(endDate).replaceFirstChar { it.uppercase() }} ${hourLabel(endHour)}"
 
     Column {
         Row(
@@ -248,7 +288,7 @@ private fun WindowRow(
         ) {
             Column(Modifier.weight(1f)) {
                 Text(
-                    dateFormatter.format(window.startDate).replaceFirstChar { it.uppercase() },
+                    rangeLabel,
                     style = MaterialTheme.typography.bodyMedium,
                     fontWeight = FontWeight.Medium,
                     color = colors.textHi
@@ -376,11 +416,11 @@ private fun PredictionCard(
             ) {
                 WEEKDAY_ORDER.forEach { day ->
                     val shortLabel = day.getDisplayName(TextStyle.SHORT, Locale("es", "ES")).take(2).replaceFirstChar { it.uppercase() }
-                    FilterChip(
+                    WeekdayChip(
+                        label = shortLabel,
                         selected = selectedDay == day,
                         onClick = { selectedDay = day },
-                        label = { Text(shortLabel) },
-                        colors = FilterChipDefaults.filterChipColors(selectedContainerColor = colors.tealDim),
+                        colors = colors,
                         modifier = Modifier.weight(1f)
                     )
                 }
@@ -441,10 +481,14 @@ private fun PredictionCard(
             )
             val barEntries = WEEKDAY_ORDER.map { day ->
                 val label = day.getDisplayName(TextStyle.SHORT, Locale("es", "ES")).replaceFirstChar { it.uppercase() }
+                val isSelected = day == selectedDay
                 HorizontalBarEntry(
                     label = label,
                     value = (predictions[day]?.averageKwh ?: 0.0).toFloat(),
-                    highlighted = day == selectedDay
+                    highlighted = isSelected,
+                    // Un cambio de color se nota de inmediato; antes solo se
+                    // subía la opacidad, una diferencia demasiado sutil.
+                    color = if (isSelected) colors.green else null
                 )
             }
             HorizontalBarList(

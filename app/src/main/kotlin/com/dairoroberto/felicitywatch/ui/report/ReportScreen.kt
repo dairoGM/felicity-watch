@@ -83,7 +83,7 @@ import java.time.format.DateTimeFormatter
 import java.time.format.FormatStyle
 import java.util.Locale
 
-private val ELECTRICAL_TABS = listOf("PV", "Batería", "FV/Carga/Descarga", "Corriente", "Generación", "Consumo", "Franja horaria")
+private val ELECTRICAL_TABS = listOf("PV", "Batería", "FV/Carga/Descarga", "Corriente", "Generación", "Consumo", "Consumo nocturno")
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable

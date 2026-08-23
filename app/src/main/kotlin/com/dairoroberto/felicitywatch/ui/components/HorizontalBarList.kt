@@ -27,7 +27,12 @@ data class HorizontalBarEntry(
     val label: String,
     val value: Float,
     /** Resalta la fila (ej. el mejor día del mes). */
-    val highlighted: Boolean = false
+    val highlighted: Boolean = false,
+    /** Color propio de esta barra, si difiere del [HorizontalBarList.barColor]
+     * general (ej. el día seleccionado en una lista de promedios semanales).
+     * Antes "resaltar" solo subía la opacidad, una diferencia demasiado sutil
+     * para notarse — un color distinto se ve de inmediato. */
+    val color: Color? = null
 )
 
 /**
@@ -93,11 +98,18 @@ fun HorizontalBarList(
                 ) {
                     val remaining = (maxValue - entry.value - secondary).coerceAtLeast(0f)
                     if (entry.value > 0f) {
+                        val ownColor = entry.color
                         Box(
                             modifier = Modifier
                                 .weight(entry.value.coerceAtLeast(maxValue * 0.008f))
                                 .fillMaxHeight()
-                                .background(if (entry.highlighted) barColor else barColor.copy(alpha = 0.8f))
+                                .background(
+                                    when {
+                                        ownColor != null -> ownColor
+                                        entry.highlighted -> barColor
+                                        else -> barColor.copy(alpha = 0.8f)
+                                    }
+                                )
                         )
                     }
                     if (secondary > 0f) {
