@@ -33,14 +33,25 @@ class EvaluateAlertRulesUseCase @Inject constructor() {
     private val autonomyDebouncers = mutableMapOf<Long, Pair<SocConfig, DoubleThresholdDebouncer>>()
     private val pvLossDebouncers = mutableMapOf<Long, Pair<SocConfig, SocThresholdDebouncer>>()
 
-    fun evaluate(rules: List<AlertRuleEntity>, reading: SystemReading, now: Instant): List<AlertTrigger> {
+    fun evaluate(
+        rules: List<AlertRuleEntity>,
+        reading: SystemReading,
+        now: Instant,
+        /** Horario esperado de generación solar (hora local, 24h), para
+         * [evaluatePvGenerationLossRules] — configurable en Ajustes porque
+         * el amanecer/anochecer real depende de la instalación (sombras del
+         * terreno, orientación de paneles), y un valor fijo arriesga falsos
+         * positivos justo al arrancar o terminar el día. */
+        pvAlertWindowStartHour: Int = 7,
+        pvAlertWindowEndHour: Int = 18
+    ): List<AlertTrigger> {
         val triggers = mutableListOf<AlertTrigger>()
 
         evaluateGridRules(rules, reading, now)?.let { triggers += it }
         triggers += evaluateSocRules(rules, reading, now)
         triggers += evaluateLoadRules(rules, reading, now)
         triggers += evaluateAutonomyRules(rules, reading, now)
-        triggers += evaluatePvGenerationLossRules(rules, reading, now)
+        triggers += evaluatePvGenerationLossRules(rules, reading, now, pvAlertWindowStartHour, pvAlertWindowEndHour)
 
         return triggers
     }
@@ -202,9 +213,11 @@ class EvaluateAlertRulesUseCase @Inject constructor() {
      * Generación fotovoltaica caída a 0 (o casi) DURANTE el horario en que
      * debería haber sol — síntoma de una falla real (inversor, cableado,
      * panel desconectado), no de la noche, que es cuando 0W es lo normal y
-     * esperado. Se evalúa solo dentro de [PV_GENERATION_WINDOW_START_HOUR]..
-     * [PV_GENERATION_WINDOW_END_HOUR] (hora local); fuera de esa franja la
-     * regla ni siquiera se considera, para no avisar cada noche.
+     * esperado. Se evalúa solo dentro de [pvAlertWindowStartHour]..
+     * [pvAlertWindowEndHour] (hora local, configurable en Ajustes); fuera de
+     * esa franja la regla ni siquiera se considera, para no avisar cada
+     * noche ni disparar un falso positivo si el sol todavía no llegó a los
+     * paneles a la hora configurada.
      *
      * El debounce (varios minutos, configurable) es lo que distingue una
      * nube pasajera momentánea de una falla real y sostenida — igual
@@ -213,13 +226,15 @@ class EvaluateAlertRulesUseCase @Inject constructor() {
     private fun evaluatePvGenerationLossRules(
         rules: List<AlertRuleEntity>,
         reading: SystemReading,
-        now: Instant
+        now: Instant,
+        pvAlertWindowStartHour: Int,
+        pvAlertWindowEndHour: Int
     ): List<AlertTrigger> {
         val activeRules = rules.filter { it.type == AlertRuleType.PV_GENERATION_LOST && it.enabled }
         if (activeRules.isEmpty()) return emptyList()
 
         val hour = now.atZone(ZoneId.systemDefault()).hour
-        if (hour !in PV_GENERATION_WINDOW_START_HOUR until PV_GENERATION_WINDOW_END_HOUR) return emptyList()
+        if (hour !in pvAlertWindowStartHour until pvAlertWindowEndHour) return emptyList()
 
         val pvWatts = reading.inverter?.pvPowerWatts ?: return emptyList()
         val triggers = mutableListOf<AlertTrigger>()
@@ -245,15 +260,5 @@ class EvaluateAlertRulesUseCase @Inject constructor() {
         }
 
         return triggers
-    }
-
-    private companion object {
-        /** Horario en que se espera generación solar real (hora local,
-         * 24h) — fuera de esta franja, PV en 0 es la noche normal, no una
-         * falla. Cuba tiene luz solar aprovechable aprox. de 7am a 6pm todo
-         * el año (trópico, poca variación estacional); si se necesitara
-         * ajustar por instalación, este es el único lugar que cambiar. */
-        const val PV_GENERATION_WINDOW_START_HOUR = 7
-        const val PV_GENERATION_WINDOW_END_HOUR = 18
     }
 }

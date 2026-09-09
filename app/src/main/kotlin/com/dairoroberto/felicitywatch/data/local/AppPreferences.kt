@@ -105,6 +105,27 @@ class AppPreferences @Inject constructor(@ApplicationContext private val context
         context.dataStore.edit { it[KEY_NIGHT_WINDOW_END_HOUR] = hour }
     }
 
+    /** Horario en que se espera generación solar real, para la alerta
+     * "Generación PV perdida" — fuera de esta franja, PV en 0 es la noche
+     * normal y no dispara nada. Configurable porque la hora real de
+     * amanecer/anochecer depende de la instalación (sombras del terreno,
+     * orientación de los paneles), y un valor fijo demasiado temprano
+     * dispararía falsos positivos cada mañana antes de que el sol de verdad
+     * llegue a los paneles. */
+    val pvAlertWindowStartHour: Flow<Int> = context.dataStore.data
+        .map { it[KEY_PV_ALERT_WINDOW_START_HOUR] ?: DEFAULT_PV_ALERT_WINDOW_START_HOUR }
+
+    suspend fun setPvAlertWindowStartHour(hour: Int) {
+        context.dataStore.edit { it[KEY_PV_ALERT_WINDOW_START_HOUR] = hour }
+    }
+
+    val pvAlertWindowEndHour: Flow<Int> = context.dataStore.data
+        .map { it[KEY_PV_ALERT_WINDOW_END_HOUR] ?: DEFAULT_PV_ALERT_WINDOW_END_HOUR }
+
+    suspend fun setPvAlertWindowEndHour(hour: Int) {
+        context.dataStore.edit { it[KEY_PV_ALERT_WINDOW_END_HOUR] = hour }
+    }
+
     companion object {
         private val KEY_LAST_READING_MILLIS = longPreferencesKey("last_reading_epoch_millis")
         private val KEY_LAST_GRID_STATE = stringPreferencesKey("last_grid_state")
@@ -159,5 +180,10 @@ class AppPreferences @Inject constructor(@ApplicationContext private val context
         private val KEY_NIGHT_WINDOW_END_HOUR = intPreferencesKey("night_window_end_hour")
         const val DEFAULT_NIGHT_WINDOW_START_HOUR = 22
         const val DEFAULT_NIGHT_WINDOW_END_HOUR = 8
+
+        private val KEY_PV_ALERT_WINDOW_START_HOUR = intPreferencesKey("pv_alert_window_start_hour")
+        private val KEY_PV_ALERT_WINDOW_END_HOUR = intPreferencesKey("pv_alert_window_end_hour")
+        const val DEFAULT_PV_ALERT_WINDOW_START_HOUR = 7
+        const val DEFAULT_PV_ALERT_WINDOW_END_HOUR = 18
     }
 }

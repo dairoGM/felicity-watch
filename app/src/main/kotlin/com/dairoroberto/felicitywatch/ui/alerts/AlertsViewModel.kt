@@ -3,6 +3,7 @@ package com.dairoroberto.felicitywatch.ui.alerts
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.dairoroberto.felicitywatch.data.local.AlertRuleEntity
+import com.dairoroberto.felicitywatch.data.local.AppPreferences
 import com.dairoroberto.felicitywatch.data.repository.AlertRuleRepository
 import com.dairoroberto.felicitywatch.domain.usecase.DispatchAlertUseCase
 import dagger.hilt.android.lifecycle.HiltViewModel
@@ -17,7 +18,8 @@ import javax.inject.Inject
 @HiltViewModel
 class AlertsViewModel @Inject constructor(
     private val repository: AlertRuleRepository,
-    private val dispatchAlertUseCase: DispatchAlertUseCase
+    private val dispatchAlertUseCase: DispatchAlertUseCase,
+    private val appPreferences: AppPreferences
 ) : ViewModel() {
 
     init {
@@ -29,6 +31,22 @@ class AlertsViewModel @Inject constructor(
 
     val rules: StateFlow<List<AlertRuleEntity>> = repository.observeRules()
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+
+    // Horario esperado de generación solar, para la regla "Generación PV
+    // perdida" — configurable porque el amanecer/anochecer real depende de
+    // la instalación (sombras del terreno, orientación de paneles).
+    val pvAlertWindowStartHour: StateFlow<Int> = appPreferences.pvAlertWindowStartHour
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), AppPreferences.DEFAULT_PV_ALERT_WINDOW_START_HOUR)
+    val pvAlertWindowEndHour: StateFlow<Int> = appPreferences.pvAlertWindowEndHour
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), AppPreferences.DEFAULT_PV_ALERT_WINDOW_END_HOUR)
+
+    fun setPvAlertWindowStartHour(hour: Int) {
+        viewModelScope.launch { appPreferences.setPvAlertWindowStartHour(hour) }
+    }
+
+    fun setPvAlertWindowEndHour(hour: Int) {
+        viewModelScope.launch { appPreferences.setPvAlertWindowEndHour(hour) }
+    }
 
     private val _messages = MutableSharedFlow<String>(extraBufferCapacity = 4)
     val messages: SharedFlow<String> = _messages

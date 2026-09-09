@@ -10,6 +10,7 @@ import com.dairoroberto.felicitywatch.data.repository.SystemReading
 import com.dairoroberto.felicitywatch.domain.model.AlertRuleType
 import com.dairoroberto.felicitywatch.domain.model.GridState
 import com.dairoroberto.felicitywatch.service.MonitoringStateHolder
+import kotlinx.coroutines.flow.first
 import java.time.Instant
 import javax.inject.Inject
 import javax.inject.Singleton
@@ -92,7 +93,13 @@ class RunMonitoringCycleUseCase @Inject constructor(
         }
 
         val enabledRules = alertRuleRepository.getEnabledRules()
-        val triggers = evaluateAlertRulesUseCase.evaluate(enabledRules, reading, now)
+        val triggers = evaluateAlertRulesUseCase.evaluate(
+            rules = enabledRules,
+            reading = reading,
+            now = now,
+            pvAlertWindowStartHour = appPreferences.pvAlertWindowStartHour.first(),
+            pvAlertWindowEndHour = appPreferences.pvAlertWindowEndHour.first()
+        )
         triggers.forEach { trigger ->
             dispatchAlertUseCase.dispatch(trigger.rule, trigger.message)
             val gridState = when (trigger.rule.type) {

@@ -32,15 +32,18 @@ class DispatchAlertUseCase @Inject constructor(
         val voiceDeferred = async {
             if (!rule.channelVoiceEnabled) return@async false
             // Consumo alto, autonomía baja y generación fotovoltaica perdida
-            // usan el mismo tono/vibración del aviso de voltaje bajo (más
-            // intenso), no texto hablado: son avisos de "revisa el equipo
-            // ya" que se reconocen mejor por patrón de sonido que por una
-            // frase leída.
+            // suenan PRIMERO el mismo tono/vibración del aviso de voltaje
+            // bajo (más intenso) para captar la atención de inmediato, y
+            // LUEGO la voz lee el mensaje configurado — así no hay que
+            // adivinar cuál de las tres alertas sonó ni qué la disparó.
             if (rule.type == AlertRuleType.LOAD_HIGH ||
                 rule.type == AlertRuleType.BATTERY_AUTONOMY_LOW ||
                 rule.type == AlertRuleType.PV_GENERATION_LOST
             ) {
-                return@async runCatching { lowVoltageAlertPlayer.play(intense = true); true }.getOrDefault(false)
+                return@async runCatching {
+                    lowVoltageAlertPlayer.play(intense = true)
+                    voicePlayer.speak(message)
+                }.getOrDefault(false)
             }
             runCatching { voicePlayer.speak(message) }.getOrDefault(false)
         }
