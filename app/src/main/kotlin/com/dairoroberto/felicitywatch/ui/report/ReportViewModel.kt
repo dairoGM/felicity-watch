@@ -47,6 +47,12 @@ class ReportViewModel @Inject constructor(
         viewModelScope.launch { appPreferences.setNightWindowEndHour(hour) }
     }
 
+    // Mismo umbral configurable en Ajustes que usa el Panel para pintar el
+    // pill de voltaje en rojo — el reporte de Voltaje lo reutiliza para
+    // marcar qué horas registraron voltaje bajo.
+    val lowVoltageThreshold: StateFlow<Int> = appPreferences.lowVoltageThreshold
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), AppPreferences.DEFAULT_LOW_VOLTAGE_THRESHOLD)
+
     // Misma fuente que el Panel (guía sección 5): estado en vivo sin
     // debounce para "con/sin corriente ahora", y lastGridChangeAt del
     // estado ya CONFIRMADO (post-debounce) para "lleva X tiempo" — si el

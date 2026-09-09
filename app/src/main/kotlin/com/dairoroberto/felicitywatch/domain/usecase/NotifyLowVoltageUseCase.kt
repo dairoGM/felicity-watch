@@ -71,7 +71,7 @@ class NotifyLowVoltageUseCase @Inject constructor(
         // Sin dato de voltaje no se puede juzgar. NO se marca como "no bajo":
         // un hueco en las lecturas no significa que el voltaje se recuperó, y
         // asumirlo dispararía un aviso duplicado en la siguiente lectura baja.
-        if (voltage == null || voltage <= 0) return null
+        if (voltage == null || voltage < 1.0) return null
 
         val threshold = appPreferences.lowVoltageThreshold.first()
         val isBelow = voltage < threshold

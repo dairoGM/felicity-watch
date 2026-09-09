@@ -17,7 +17,7 @@ import com.dairoroberto.felicitywatch.domain.model.ComparisonOperator
         ImportedBackupEntity::class,
         ConfirmedApplianceEventEntity::class
     ],
-    version = 15,
+    version = 17,
     exportSchema = true
 )
 @TypeConverters(Converters::class)
@@ -110,6 +110,24 @@ abstract class AppDatabase : RoomDatabase() {
                 // El canal de voz no lee este texto (usa el tono de aviso
                 // intenso) — este mensaje es el que ven push y WhatsApp.
                 messageTemplate = "Autonomía de batería baja: queda poco tiempo sin corriente de red"
+            ),
+            // 5W (no 0 exacto) para tolerar ruido del sensor cerca del
+            // amanecer/atardecer sin dejar de detectar una falla real. El
+            // debounce de 5 min filtra una nube pasajera; solo se evalúa
+            // en horario de sol (ver PV_GENERATION_WINDOW_* en
+            // EvaluateAlertRulesUseCase).
+            AlertRuleEntity(
+                type = AlertRuleType.PV_GENERATION_LOST,
+                enabled = true,
+                thresholdValue = 5.0,
+                comparisonOperator = ComparisonOperator.LTE,
+                debounceSeconds = 300,
+                channelVoiceEnabled = true,
+                channelPushEnabled = true,
+                channelWhatsappEnabled = true,
+                // El canal de voz no lee este texto (usa el tono de aviso
+                // intenso) — este mensaje es el que ven push y WhatsApp.
+                messageTemplate = "Generación fotovoltaica en 0 en horario de sol: revisa el inversor y los paneles"
             )
         )
     }

@@ -6,6 +6,7 @@ import com.dairoroberto.felicitywatch.domain.model.AlertRuleType
 import com.dairoroberto.felicitywatch.domain.model.ComparisonOperator
 import com.dairoroberto.felicitywatch.domain.model.GridState
 import java.time.Instant
+import java.time.ZoneId
 import javax.inject.Inject
 import javax.inject.Singleton
 
@@ -30,6 +31,7 @@ class EvaluateAlertRulesUseCase @Inject constructor() {
     private val socDebouncers = mutableMapOf<Long, Pair<SocConfig, SocThresholdDebouncer>>()
     private val loadDebouncers = mutableMapOf<Long, Pair<SocConfig, SocThresholdDebouncer>>()
     private val autonomyDebouncers = mutableMapOf<Long, Pair<SocConfig, DoubleThresholdDebouncer>>()
+    private val pvLossDebouncers = mutableMapOf<Long, Pair<SocConfig, SocThresholdDebouncer>>()
 
     fun evaluate(rules: List<AlertRuleEntity>, reading: SystemReading, now: Instant): List<AlertTrigger> {
         val triggers = mutableListOf<AlertTrigger>()
@@ -38,6 +40,7 @@ class EvaluateAlertRulesUseCase @Inject constructor() {
         triggers += evaluateSocRules(rules, reading, now)
         triggers += evaluateLoadRules(rules, reading, now)
         triggers += evaluateAutonomyRules(rules, reading, now)
+        triggers += evaluatePvGenerationLossRules(rules, reading, now)
 
         return triggers
     }
@@ -163,8 +166,13 @@ class EvaluateAlertRulesUseCase @Inject constructor() {
             socPercent = reading.battery?.socPercent,
             loadWatts = reading.inverter?.loadPowerWatts,
             capacityAh = reading.battery?.capacityAh,
-            voltage = reading.battery?.voltage
+            voltage = reading.battery?.voltage,
+            pvWatts = reading.inverter?.pvPowerWatts
         ) ?: return emptyList()
+        // Infinita = el sol cubre el consumo, la batería no se está
+        // descargando ahora mismo: no hay "autonomía baja" que avisar,
+        // aunque el umbral configurado sea un número finito de horas.
+        if (runtimeHours.isInfinite()) return emptyList()
 
         val triggers = mutableListOf<AlertTrigger>()
         activeRules.forEach { rule ->
@@ -188,5 +196,64 @@ class EvaluateAlertRulesUseCase @Inject constructor() {
         }
 
         return triggers
+    }
+
+    /**
+     * Generación fotovoltaica caída a 0 (o casi) DURANTE el horario en que
+     * debería haber sol — síntoma de una falla real (inversor, cableado,
+     * panel desconectado), no de la noche, que es cuando 0W es lo normal y
+     * esperado. Se evalúa solo dentro de [PV_GENERATION_WINDOW_START_HOUR]..
+     * [PV_GENERATION_WINDOW_END_HOUR] (hora local); fuera de esa franja la
+     * regla ni siquiera se considera, para no avisar cada noche.
+     *
+     * El debounce (varios minutos, configurable) es lo que distingue una
+     * nube pasajera momentánea de una falla real y sostenida — igual
+     * criterio que el resto de reglas de umbral de esta clase.
+     */
+    private fun evaluatePvGenerationLossRules(
+        rules: List<AlertRuleEntity>,
+        reading: SystemReading,
+        now: Instant
+    ): List<AlertTrigger> {
+        val activeRules = rules.filter { it.type == AlertRuleType.PV_GENERATION_LOST && it.enabled }
+        if (activeRules.isEmpty()) return emptyList()
+
+        val hour = now.atZone(ZoneId.systemDefault()).hour
+        if (hour !in PV_GENERATION_WINDOW_START_HOUR until PV_GENERATION_WINDOW_END_HOUR) return emptyList()
+
+        val pvWatts = reading.inverter?.pvPowerWatts ?: return emptyList()
+        val triggers = mutableListOf<AlertTrigger>()
+
+        activeRules.forEach { rule ->
+            val threshold = rule.thresholdValue
+            val operator = rule.comparisonOperator
+            if (threshold == null || operator == null) return@forEach
+
+            val config = SocConfig(threshold, operator, rule.debounceSeconds)
+            val cached = pvLossDebouncers[rule.id]
+            val debouncer = if (cached == null || cached.first != config) {
+                SocThresholdDebouncer(config.debounceSeconds, config.threshold, config.operator).also {
+                    pvLossDebouncers[rule.id] = config to it
+                }
+            } else {
+                cached.second
+            }
+
+            if (debouncer.onNewReading(pvWatts, now) == true) {
+                triggers += AlertTrigger(rule, rule.messageTemplate)
+            }
+        }
+
+        return triggers
+    }
+
+    private companion object {
+        /** Horario en que se espera generación solar real (hora local,
+         * 24h) — fuera de esta franja, PV en 0 es la noche normal, no una
+         * falla. Cuba tiene luz solar aprovechable aprox. de 7am a 6pm todo
+         * el año (trópico, poca variación estacional); si se necesitara
+         * ajustar por instalación, este es el único lugar que cambiar. */
+        const val PV_GENERATION_WINDOW_START_HOUR = 7
+        const val PV_GENERATION_WINDOW_END_HOUR = 18
     }
 }

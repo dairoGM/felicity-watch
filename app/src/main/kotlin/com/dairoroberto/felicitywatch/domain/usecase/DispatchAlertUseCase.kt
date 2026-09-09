@@ -31,11 +31,15 @@ class DispatchAlertUseCase @Inject constructor(
     suspend fun dispatch(rule: AlertRuleEntity, message: String) = coroutineScope {
         val voiceDeferred = async {
             if (!rule.channelVoiceEnabled) return@async false
-            // Consumo alto y autonomía baja usan el mismo tono/vibración del
-            // aviso de voltaje bajo (más intenso), no texto hablado: son
-            // avisos de "revisa el equipo ya" que se reconocen mejor por
-            // patrón de sonido que por una frase leída.
-            if (rule.type == AlertRuleType.LOAD_HIGH || rule.type == AlertRuleType.BATTERY_AUTONOMY_LOW) {
+            // Consumo alto, autonomía baja y generación fotovoltaica perdida
+            // usan el mismo tono/vibración del aviso de voltaje bajo (más
+            // intenso), no texto hablado: son avisos de "revisa el equipo
+            // ya" que se reconocen mejor por patrón de sonido que por una
+            // frase leída.
+            if (rule.type == AlertRuleType.LOAD_HIGH ||
+                rule.type == AlertRuleType.BATTERY_AUTONOMY_LOW ||
+                rule.type == AlertRuleType.PV_GENERATION_LOST
+            ) {
                 return@async runCatching { lowVoltageAlertPlayer.play(intense = true); true }.getOrDefault(false)
             }
             runCatching { voicePlayer.speak(message) }.getOrDefault(false)

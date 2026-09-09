@@ -235,6 +235,40 @@ object Migrations {
         }
     }
 
+    /** v15 → v16: agrega `power_readings.gridVoltage` y `.outputVoltage`,
+     * para el reporte de Voltaje (evolución por hora/día). Ambas columnas
+     * son nullable — ALTER TABLE ADD COLUMN sin DEFAULT es válido en SQLite
+     * cuando la columna admite NULL, y coincide con lo que Room genera para
+     * un campo `Double? = null`. Las lecturas existentes quedan con ambos
+     * campos en null, que es exactamente su estado real: no se midió
+     * voltaje antes de esta versión. */
+    val MIGRATION_15_16 = object : Migration(15, 16) {
+        override fun migrate(db: SupportSQLiteDatabase) {
+            db.execSQL("ALTER TABLE `power_readings` ADD COLUMN `gridVoltage` REAL")
+            db.execSQL("ALTER TABLE `power_readings` ADD COLUMN `outputVoltage` REAL")
+        }
+    }
+
+    /** v16 → v17: limpia los voltajes residuales que quedaron guardados. El
+     * inversor reporta SIEMPRE ambos campos: sin corriente de la calle deja en
+     * la entrada AC fracciones de voltio (0,5-0,6V medidos en vivo, no un 0
+     * limpio), y eso se persistió como si fuera una medición. Consumidores que
+     * resuelven `gridVoltage ?: outputVoltage` se quedaban con el residuo — no
+     * es null, y tampoco lo descarta un filtro `> 0` — y el gráfico del Panel
+     * caía a ~0V mientras el card mostraba los 119V reales del inversor.
+     *
+     * El umbral es 1V: cualquier vía que de verdad alimente la casa está en la
+     * escala de 110/120V, así que nada legítimo cae aquí. El mapper ya no los
+     * guarda; esto arregla el historial que quedó. No hay cambio de esquema:
+     * solo se reescriben esos residuos a NULL, que es su significado real ("no
+     * medido"). El historial de potencia queda intacto. */
+    val MIGRATION_16_17 = object : Migration(16, 17) {
+        override fun migrate(db: SupportSQLiteDatabase) {
+            db.execSQL("UPDATE `power_readings` SET `gridVoltage` = NULL WHERE `gridVoltage` < 1")
+            db.execSQL("UPDATE `power_readings` SET `outputVoltage` = NULL WHERE `outputVoltage` < 1")
+        }
+    }
+
     val ALL = arrayOf(
         MIGRATION_6_7,
         MIGRATION_7_8,
@@ -244,6 +278,8 @@ object Migrations {
         MIGRATION_11_12,
         MIGRATION_12_13,
         MIGRATION_13_14,
-        MIGRATION_14_15
+        MIGRATION_14_15,
+        MIGRATION_15_16,
+        MIGRATION_16_17
     )
 }

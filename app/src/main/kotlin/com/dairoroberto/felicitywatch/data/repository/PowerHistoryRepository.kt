@@ -39,6 +39,8 @@ class PowerHistoryRepository @Inject constructor(
         batteryPowerWatts: Int?,
         pvEnergyTodayKwh: Double?,
         loadEnergyTodayKwh: Double?,
+        gridVoltage: Double?,
+        outputVoltage: Double?,
         now: Instant
     ) {
         dao.insert(
@@ -50,7 +52,9 @@ class PowerHistoryRepository @Inject constructor(
                 loadPowerWatts = loadPowerWatts,
                 batteryPowerWatts = batteryPowerWatts,
                 pvEnergyTodayKwh = pvEnergyTodayKwh,
-                loadEnergyTodayKwh = loadEnergyTodayKwh
+                loadEnergyTodayKwh = loadEnergyTodayKwh,
+                gridVoltage = gridVoltage,
+                outputVoltage = outputVoltage
             )
         )
         // Poda liviana: retiene RETENTION_DAYS para que el Reporte y la

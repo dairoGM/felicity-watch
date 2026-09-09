@@ -87,6 +87,7 @@ private fun titleFor(type: AlertRuleType): String = when (type) {
     AlertRuleType.BATTERY_SOC_HIGH -> "Batería llena"
     AlertRuleType.LOAD_HIGH -> "Consumo alto"
     AlertRuleType.BATTERY_AUTONOMY_LOW -> "Autonomía baja"
+    AlertRuleType.PV_GENERATION_LOST -> "Generación PV perdida"
 }
 
 private fun subtitleFor(type: AlertRuleType): String = when (type) {
@@ -96,6 +97,7 @@ private fun subtitleFor(type: AlertRuleType): String = when (type) {
     AlertRuleType.BATTERY_SOC_HIGH -> "Se dispara cuando la carga supera el umbral"
     AlertRuleType.LOAD_HIGH -> "Se dispara cuando el consumo de la casa supera el umbral (el inversor es de 8kW)"
     AlertRuleType.BATTERY_AUTONOMY_LOW -> "Se dispara cuando el anillo de Autonomía del Panel se pone en rojo (sin corriente de red)"
+    AlertRuleType.PV_GENERATION_LOST -> "Se dispara si la generación solar cae por debajo del umbral en horario de sol (7am-6pm) — posible falla del inversor o los paneles"
 }
 
 private fun thresholdUnitFor(type: AlertRuleType): String = when (type) {
@@ -103,6 +105,7 @@ private fun thresholdUnitFor(type: AlertRuleType): String = when (type) {
     AlertRuleType.BATTERY_SOC_LOW, AlertRuleType.BATTERY_SOC_HIGH -> "%"
     AlertRuleType.LOAD_HIGH -> "W"
     AlertRuleType.BATTERY_AUTONOMY_LOW -> "horas"
+    AlertRuleType.PV_GENERATION_LOST -> "W"
 }
 
 @Composable
@@ -232,7 +235,9 @@ private fun AlertRuleCard(
                     .padding(top = 16.dp)
             )
 
-            val usesToneInsteadOfVoice = rule.type == AlertRuleType.LOAD_HIGH || rule.type == AlertRuleType.BATTERY_AUTONOMY_LOW
+            val usesToneInsteadOfVoice = rule.type == AlertRuleType.LOAD_HIGH ||
+                rule.type == AlertRuleType.BATTERY_AUTONOMY_LOW ||
+                rule.type == AlertRuleType.PV_GENERATION_LOST
             if (usesToneInsteadOfVoice) {
                 Text(
                     "La voz no lee este mensaje: suena un tono de aviso intenso en su lugar.",

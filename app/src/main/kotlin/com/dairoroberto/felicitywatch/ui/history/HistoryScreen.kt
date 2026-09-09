@@ -126,6 +126,7 @@ private fun titleFor(type: AlertRuleType): String = when (type) {
     AlertRuleType.BATTERY_SOC_HIGH -> "Batería llena"
     AlertRuleType.LOAD_HIGH -> "Consumo alto"
     AlertRuleType.BATTERY_AUTONOMY_LOW -> "Autonomía baja"
+    AlertRuleType.PV_GENERATION_LOST -> "Generación PV perdida"
 }
 
 /** Verde para "volvió la corriente", rojo para "se fue" — null para el resto

@@ -30,10 +30,13 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Bolt
 import androidx.compose.material.icons.filled.CalendarMonth
 import androidx.compose.material.icons.filled.ChevronLeft
 import androidx.compose.material.icons.filled.ChevronRight
 import androidx.compose.material.icons.filled.KeyboardArrowDown
+import androidx.compose.material.icons.filled.WarningAmber
+import androidx.compose.material.icons.filled.WbSunny
 import androidx.compose.material3.DatePicker
 import androidx.compose.material3.DatePickerDialog
 import androidx.compose.material3.DropdownMenu
@@ -60,14 +63,18 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import androidx.hilt.navigation.compose.hiltViewModel
 import com.dairoroberto.felicitywatch.ui.components.ChartPoint
 import com.dairoroberto.felicitywatch.ui.components.ChartSeries
 import com.dairoroberto.felicitywatch.ui.components.ChartZoomState
 import com.dairoroberto.felicitywatch.ui.components.HorizontalBarEntry
 import com.dairoroberto.felicitywatch.ui.components.HorizontalBarList
+import com.dairoroberto.felicitywatch.ui.components.HourlyRange
+import com.dairoroberto.felicitywatch.ui.components.HourlyRangeBarList
 import com.dairoroberto.felicitywatch.ui.components.LineAreaChart
 import com.dairoroberto.felicitywatch.ui.components.MultiLineChart
 import com.dairoroberto.felicitywatch.ui.components.NiceAxis
@@ -83,7 +90,7 @@ import java.time.format.DateTimeFormatter
 import java.time.format.FormatStyle
 import java.util.Locale
 
-private val ELECTRICAL_TABS = listOf("PV", "Batería", "FV/Carga/Descarga", "Corriente", "Generación", "Consumo", "Consumo nocturno")
+private val ELECTRICAL_TABS = listOf("PV", "Batería", "FV/Carga/Descarga", "Corriente", "Generación", "Consumo", "Consumo nocturno", "Voltaje", "Excedente")
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -94,6 +101,7 @@ fun ReportScreen(viewModel: ReportViewModel = hiltViewModel()) {
     val allReadingsInRetention by viewModel.allReadingsInRetention.collectAsState()
     val nightWindowStartHour by viewModel.nightWindowStartHour.collectAsState()
     val nightWindowEndHour by viewModel.nightWindowEndHour.collectAsState()
+    val lowVoltageThreshold by viewModel.lowVoltageThreshold.collectAsState()
     val colors = LocalFelicityColors.current
 
     var showStartPicker by remember { mutableStateOf(false) }
@@ -325,6 +333,8 @@ fun ReportScreen(viewModel: ReportViewModel = hiltViewModel()) {
                         onEndHourChange = { viewModel.setNightWindowEndHour(it) },
                         colors = colors
                     )
+                    7 -> VoltageReportCard(readings, dateRange, colors, now, lowVoltageThreshold)
+                    8 -> SolarSurplusReportCard(readings, dateRange, colors, now)
                 }
             }
         }
@@ -451,8 +461,580 @@ private fun PvGenerationCard(
                     color = colors.textLow,
                     modifier = Modifier.padding(top = 10.dp)
                 )
+
+                peakGenerationWindow(filteredReadings, ZoneId.systemDefault())?.let { window ->
+                    PeakGenerationCard(window = window, colors = colors)
+                }
             }
         }
+    }
+}
+
+/** Ventana horaria de mayor generación solar promedio: hora de inicio, hora
+ * de fin (exclusiva) y el promedio de PV en ese tramo. */
+private data class PeakGenerationWindow(
+    val startHour: Int,
+    val endHour: Int,
+    val averageWatts: Double
+)
+
+/**
+ * Encuentra el tramo de horas CONSECUTIVAS con mayor generación solar
+ * promedio del período — no la hora suelta más alta, sino una ventana (ej.
+ * "11am-2pm") que es lo que de verdad sirve para decidir cuándo usar los
+ * equipos de mayor consumo.
+ *
+ * Se agrupa por HORA DEL DÍA (0..23), promediando todas las lecturas de esa
+ * hora sin importar a qué día del rango pertenecen — así en un rango de
+ * varios días la ventana resultante es la más representativa del período
+ * completo, no la de un solo día suelto.
+ *
+ * El tamaño de la ventana ([WINDOW_HOURS]) se fija en 3 horas: es un
+ * intervalo que comunica algo accionable ("enciende la lavadora entre estas
+ * horas"), mientras que una sola hora es demasiado estrecho para planear
+ * nada y un rango de más horas deja de ser "el pico" para ser "el día".
+ */
+private fun peakGenerationWindow(
+    readings: List<com.dairoroberto.felicitywatch.data.local.PowerReadingEntity>,
+    zone: ZoneId
+): PeakGenerationWindow? {
+    val byHour = readings
+        .mapNotNull { r -> r.pvPowerWatts?.let { watts -> Instant.ofEpochMilli(r.timestampEpochMillis).atZone(zone).hour to watts } }
+        .groupBy({ it.first }, { it.second })
+
+    if (byHour.isEmpty()) return null
+
+    val hourlyAverage = (0..23).map { hour -> byHour[hour]?.average() ?: 0.0 }
+    // Sin generación real en ningún tramo (ej. rango sin ninguna lectura de
+    // día) no tiene sentido reportar una "ventana pico" de puros ceros.
+    if (hourlyAverage.all { it <= 0.0 }) return null
+
+    val windowSize = WINDOW_HOURS.coerceAtMost(24)
+    var bestStart = 0
+    var bestAverage = -1.0
+    for (start in 0..(24 - windowSize)) {
+        val windowAverage = hourlyAverage.subList(start, start + windowSize).average()
+        if (windowAverage > bestAverage) {
+            bestAverage = windowAverage
+            bestStart = start
+        }
+    }
+
+    return PeakGenerationWindow(
+        startHour = bestStart,
+        endHour = bestStart + windowSize,
+        averageWatts = bestAverage
+    )
+}
+
+private const val WINDOW_HOURS = 3
+
+/**
+ * Card de la hora pico de generación — deliberadamente distinto de los
+ * números en fila de arriba (Máximo/Promedio/Lecturas): esto es la
+ * respuesta a una pregunta concreta ("¿cuándo me conviene usar los equipos
+ * grandes?"), así que se presenta como una recomendación con su propio
+ * espacio, no como un dato más en la lista.
+ */
+@Composable
+private fun PeakGenerationCard(
+    window: PeakGenerationWindow,
+    colors: com.dairoroberto.felicitywatch.ui.theme.FelicitySemanticColors
+) {
+    val hourFormatter = remember { DateTimeFormatter.ofPattern("h:mm a").withLocale(Locale("es", "ES")) }
+    val rangeLabel = "${formatClockHour(window.startHour, hourFormatter)} – " +
+        formatClockHour(window.endHour % 24, hourFormatter)
+    val averageLabel = if (window.averageWatts >= 1000) {
+        String.format(Locale("es", "ES"), "%.2f kW", window.averageWatts / 1000.0)
+    } else {
+        "${window.averageWatts.toInt()} W"
+    }
+
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(top = 18.dp)
+            .clip(RoundedCornerShape(14.dp))
+            .background(
+                Brush.horizontalGradient(
+                    listOf(colors.pvAccent.copy(alpha = 0.16f), colors.pvAccent.copy(alpha = 0.05f))
+                )
+            )
+            .padding(14.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Box(
+            modifier = Modifier
+                .size(38.dp)
+                .clip(RoundedCornerShape(10.dp))
+                .background(colors.pvAccent.copy(alpha = 0.18f)),
+            contentAlignment = Alignment.Center
+        ) {
+            Icon(
+                Icons.Default.WbSunny,
+                contentDescription = null,
+                tint = colors.pvAccent,
+                modifier = Modifier.size(20.dp)
+            )
+        }
+        Column(Modifier.padding(start = 12.dp)) {
+            Text(
+                "HORA PICO DE GENERACIÓN",
+                style = MaterialTheme.typography.labelSmall,
+                fontSize = 9.sp,
+                fontWeight = FontWeight.Bold,
+                color = colors.textLow
+            )
+            Text(
+                rangeLabel,
+                style = MaterialTheme.typography.bodyLarge,
+                fontWeight = FontWeight.Bold,
+                fontSize = 17.sp,
+                color = colors.textHi,
+                modifier = Modifier.padding(top = 2.dp)
+            )
+            Text(
+                "Promedio de $averageLabel en este tramo — el mejor momento para usar equipos de mayor consumo.",
+                style = MaterialTheme.typography.labelSmall,
+                color = colors.textMid,
+                modifier = Modifier.padding(top = 2.dp)
+            )
+        }
+    }
+}
+
+/** hora entera (0..23) -> "11:00 am", reutilizando el formato ya usado en el
+ * resto de la app. Se construye un ZonedDateTime arbitrario del día actual
+ * solo para poder aplicar el DateTimeFormatter sobre una hora en punto. */
+private fun formatClockHour(hour: Int, formatter: DateTimeFormatter): String {
+    val zoned = LocalDate.now().atTime(hour, 0).atZone(ZoneId.systemDefault())
+    return formatter.format(zoned).lowercase()
+}
+
+/**
+ * Evolución del voltaje por hora, para el día (o rango) elegido en el filtro
+ * de arriba — mismo patrón que "PV" (día por hora, zoom, tooltip), pero con
+ * dos series que nunca coinciden en el tiempo: el voltaje de la RED cuando
+ * hay corriente, y el de SALIDA del inversor hacia la casa cuando no la hay.
+ *
+ * Son dos magnitudes de la misma naturaleza (AC, 110/120V) y se leen en el
+ * mismo eje — se muestran como series distintas, no una sola línea
+ * combinada, para que el usuario vea de un vistazo cuál fuente alimentaba
+ * la casa en cada tramo del día.
+ */
+@Composable
+private fun VoltageReportCard(
+    readings: List<com.dairoroberto.felicitywatch.data.local.PowerReadingEntity>,
+    dateRange: DateRange,
+    colors: com.dairoroberto.felicitywatch.ui.theme.FelicitySemanticColors,
+    now: Instant,
+    lowVoltageThreshold: Int
+) {
+    Card(
+        colors = CardDefaults.cardColors(containerColor = colors.surface2),
+        shape = RoundedCornerShape(16.dp),
+        elevation = CardDefaults.cardElevation(defaultElevation = 1.dp),
+        modifier = Modifier.fillMaxWidth()
+    ) {
+        Column(Modifier.padding(16.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Icon(
+                    Icons.Default.Bolt,
+                    contentDescription = null,
+                    tint = colors.textLow,
+                    modifier = Modifier.size(13.dp)
+                )
+                Text(
+                    "VOLTAJE POR HORA",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = colors.textLow,
+                    modifier = Modifier.padding(start = 5.dp)
+                )
+            }
+
+            val zone = ZoneId.systemDefault()
+            // Se exige >= 1V, no solo != null: sin corriente de la calle el
+            // inversor deja en la entrada AC fracciones de voltio (0,5-0,6V
+            // medidos) en vez de un 0 limpio, y contarlas como lecturas
+            // válidas metía esos residuos en el mínimo, en el promedio y en el
+            // conteo de "lecturas bajo el umbral". Nada legítimo cae bajo 1V:
+            // la vía que alimenta la casa está en la escala de 110/120V.
+            val voltageReadings = readings.filter {
+                (it.gridVoltage ?: 0.0) >= 1.0 || (it.outputVoltage ?: 0.0) >= 1.0
+            }
+
+            if (voltageReadings.size < 2) {
+                Text(
+                    "No hay suficiente historial de voltaje registrado en este periodo.\n" +
+                        "El historial se acumula localmente mientras la app monitorea.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = colors.textMid,
+                    modifier = Modifier.padding(top = 24.dp, bottom = 24.dp)
+                )
+            } else {
+                val lastReadingMillis = voltageReadings.maxOf { it.timestampEpochMillis }
+                val lastReadingInstant = Instant.ofEpochMilli(lastReadingMillis)
+                val currentHour = lastReadingInstant.atZone(zone).hour
+
+                // Resumen PRIMERO, no al final: es lo que responde de un
+                // vistazo "¿cómo estuvo el voltaje hoy?", antes de bajar al
+                // detalle hora por hora. Mismo patrón que ya usa el modal de
+                // detalle del Panel (MetricDetailDialog).
+                // La vía se elige por el estado de red de cada lectura
+                // (gridPower < 1W = sin corriente), el mismo criterio del card
+                // del Panel — no con un elvis entre ambos campos, que se
+                // quedaba con el residuo de la entrada AC inactiva y hundía el
+                // mínimo a 0,5V.
+                val allValues = voltageReadings.mapNotNull { r ->
+                    val online = (r.gridPowerWatts ?: 0) >= 1
+                    (if (online) r.gridVoltage else r.outputVoltage)?.takeIf { it >= 1.0 }
+                }
+                // minOrNull, no min(): `voltageReadings` filtra por "trae algún
+                // voltaje en alguna vía", pero `allValues` exige además que sea
+                // la vía ACTIVA de esa lectura, así que puede quedar vacía
+                // (p.ej. lecturas donde solo vino el residuo de la vía
+                // inactiva). Con min() eso era un NoSuchElementException.
+                val minValue = allValues.minOrNull()
+                if (minValue != null) {
+                    VoltageSummaryStrip(
+                        minV = minValue,
+                        avgV = allValues.average(),
+                        maxV = allValues.max(),
+                        colors = colors
+                    )
+                }
+
+                // Aviso agregado: cuantas horas del periodo registraron al
+                // menos una lectura por debajo del umbral — responde de un
+                // vistazo "¿hubo caidas de voltaje?" antes de bajar a ver
+                // hora por hora cual.
+                val lowHoursCount = allValues.count { it < lowVoltageThreshold }
+                if (lowHoursCount > 0) {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(top = 10.dp)
+                            .clip(RoundedCornerShape(10.dp))
+                            .background(MaterialTheme.colorScheme.error.copy(alpha = 0.10f))
+                            .padding(horizontal = 10.dp, vertical = 8.dp)
+                    ) {
+                        Icon(
+                            Icons.Default.WarningAmber,
+                            contentDescription = null,
+                            tint = MaterialTheme.colorScheme.error,
+                            modifier = Modifier.size(15.dp)
+                        )
+                        Text(
+                            "$lowHoursCount lectura${if (lowHoursCount == 1) "" else "s"} por debajo de ${lowVoltageThreshold}V en este periodo",
+                            style = MaterialTheme.typography.labelSmall,
+                            fontWeight = FontWeight.Medium,
+                            color = MaterialTheme.colorScheme.error,
+                            modifier = Modifier.padding(start = 7.dp)
+                        )
+                    }
+                }
+
+                val secondsAgo = Duration.between(lastReadingInstant, now).seconds.coerceAtLeast(0)
+                val lastReadingTimeFormatter = DateTimeFormatter.ofPattern("hh:mm").withLocale(Locale("es", "ES"))
+                Text(
+                    "Última lectura: ${format12Hour(lastReadingTimeFormatter, lastReadingInstant.atZone(zone))} (hace ${secondsAgo}s)",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = colors.textLow,
+                    modifier = Modifier.padding(top = 10.dp)
+                )
+
+                // Se agrupa por la HORA DEL DÍA (0..23) de cada lectura, sin
+                // importar a qué día del rango pertenece: si el filtro cubre
+                // varios días, cada fila resume esa hora combinando todos
+                // los días del rango. Para un solo día (el uso normal desde
+                // el filtro de fecha) cada fila es esa hora exacta de ese día.
+                //
+                // Orden DESCENDENTE desde la hora de la última lectura: lo
+                // más reciente es lo que interesa primero, igual que
+                // cualquier bitácora — no tiene sentido obligar a bajar 23
+                // filas para ver "ahora mismo".
+                // takeIf { >= 1 } por lo mismo: el residuo que el inversor deja
+                // en la vía inactiva no es una medición, y sin filtrarlo el
+                // mínimo de cada hora salía en 0,5 V.
+                val gridByHour = hourlyRanges(voltageReadings, zone) { it.gridVoltage?.takeIf { v -> v >= 1.0 } }
+                val outputByHour = hourlyRanges(voltageReadings, zone) { it.outputVoltage?.takeIf { v -> v >= 1.0 } }
+                val hourOrder = (0..23).sortedByDescending { hour ->
+                    if (hour <= currentHour) hour + 24 else hour
+                }
+                val gridOrdered = hourOrder.map { gridByHour[it] }
+                val outputOrdered = hourOrder.map { outputByHour[it] }
+
+                val hasGrid = gridOrdered.any { it != null }
+                val hasOutput = outputOrdered.any { it != null }
+
+                if (hasGrid) {
+                    VoltageSeriesHeader(label = "Red — con corriente", color = colors.accent)
+                    HourlyRangeBarList(
+                        entries = gridOrdered,
+                        barColor = colors.accent,
+                        trackColor = colors.hairline.copy(alpha = 0.4f),
+                        labelColor = colors.textLow,
+                        valueColor = colors.textHi,
+                        valueFormatter = { "%.0f".format(it) },
+                        lowThreshold = lowVoltageThreshold.toFloat(),
+                        lowColor = MaterialTheme.colorScheme.error,
+                        modifier = Modifier.padding(top = 8.dp)
+                    )
+                }
+
+                if (hasOutput) {
+                    VoltageSeriesHeader(
+                        label = "Salida del inversor — sin corriente",
+                        color = colors.chargeAccent,
+                        modifier = Modifier.padding(top = if (hasGrid) 20.dp else 0.dp)
+                    )
+                    HourlyRangeBarList(
+                        entries = outputOrdered,
+                        barColor = colors.chargeAccent,
+                        trackColor = colors.hairline.copy(alpha = 0.4f),
+                        labelColor = colors.textLow,
+                        valueColor = colors.textHi,
+                        valueFormatter = { "%.0f".format(it) },
+                        lowThreshold = lowVoltageThreshold.toFloat(),
+                        lowColor = MaterialTheme.colorScheme.error,
+                        modifier = Modifier.padding(top = 8.dp)
+                    )
+                }
+            }
+        }
+    }
+}
+
+/** Encabezado de una de las dos series (Red / Salida del inversor): un
+ * punto del color de la serie + etiqueta, más discreto que un bloque de
+ * texto en mayúsculas y en negrita como antes. */
+@Composable
+private fun VoltageSeriesHeader(
+    label: String,
+    color: androidx.compose.ui.graphics.Color,
+    modifier: Modifier = Modifier
+) {
+    Row(
+        verticalAlignment = Alignment.CenterVertically,
+        modifier = modifier.fillMaxWidth().padding(top = 14.dp)
+    ) {
+        androidx.compose.foundation.layout.Box(
+            Modifier
+                .size(7.dp)
+                .clip(androidx.compose.foundation.shape.CircleShape)
+                .background(color)
+        )
+        Text(
+            label,
+            style = MaterialTheme.typography.labelSmall,
+            fontWeight = FontWeight.SemiBold,
+            color = color,
+            modifier = Modifier.padding(start = 7.dp)
+        )
+    }
+}
+
+/**
+ * Tira de resumen (Mínimo / Promedio / Máximo) con separadores verticales
+ * — mismo lenguaje visual que ya usa el modal de detalle del Panel, para
+ * que un usuario que abrió ambos reconozca el patrón.
+ */
+@Composable
+private fun VoltageSummaryStrip(
+    minV: Double,
+    avgV: Double,
+    maxV: Double,
+    colors: com.dairoroberto.felicitywatch.ui.theme.FelicitySemanticColors
+) {
+    val stats = listOf(
+        "MÍNIMO" to minV,
+        "PROMEDIO" to avgV,
+        "MÁXIMO" to maxV
+    )
+    Row(
+        modifier = Modifier.fillMaxWidth().padding(top = 12.dp),
+        horizontalArrangement = Arrangement.spacedBy(0.dp)
+    ) {
+        stats.forEachIndexed { index, (label, value) ->
+            if (index > 0) {
+                androidx.compose.foundation.layout.Box(
+                    Modifier
+                        .padding(horizontal = 12.dp)
+                        .size(width = 1.dp, height = 26.dp)
+                        .background(colors.hairline)
+                )
+            }
+            Column(Modifier.weight(1f)) {
+                Text(
+                    label,
+                    style = MaterialTheme.typography.labelSmall,
+                    fontSize = 8.5.sp,
+                    fontWeight = FontWeight.Bold,
+                    color = colors.textLow
+                )
+                Text(
+                    String.format(Locale("es", "ES"), "%.1f V", value),
+                    fontFamily = com.dairoroberto.felicitywatch.ui.theme.JetBrainsMonoFamily,
+                    fontWeight = FontWeight.Medium,
+                    fontSize = 15.sp,
+                    color = colors.textHi,
+                    modifier = Modifier.padding(top = 3.dp)
+                )
+            }
+        }
+    }
+}
+
+/**
+ * Excedente solar acumulado hora por hora del día elegido en el filtro de
+ * arriba: 24 filas fijas (00h..23h), cada una con el kWh que sobró de
+ * generación sobre consumo en esa hora, y el total del día debajo.
+ *
+ * Usa [SolarSurplusEstimator], que integra la potencia NETA (PV − consumo)
+ * en el tiempo — no resta dos totales de energía del día, que perdería la
+ * variación minuto a minuto. Solo se acumulan los tramos con excedente
+ * positivo; un tramo de déficit no resta, simplemente no aporta.
+ */
+@Composable
+private fun SolarSurplusReportCard(
+    readings: List<com.dairoroberto.felicitywatch.data.local.PowerReadingEntity>,
+    dateRange: DateRange,
+    colors: com.dairoroberto.felicitywatch.ui.theme.FelicitySemanticColors,
+    now: Instant
+) {
+    Card(
+        colors = CardDefaults.cardColors(containerColor = colors.surface2),
+        shape = RoundedCornerShape(16.dp),
+        elevation = CardDefaults.cardElevation(defaultElevation = 1.dp),
+        modifier = Modifier.fillMaxWidth()
+    ) {
+        Column(Modifier.padding(16.dp)) {
+            Text(
+                "EXCEDENTE SOLAR POR HORA",
+                style = MaterialTheme.typography.labelSmall,
+                color = colors.textLow
+            )
+
+            val zone = ZoneId.systemDefault()
+            val usableReadings = readings.filter { it.pvPowerWatts != null && it.loadPowerWatts != null }
+
+            if (usableReadings.size < 2) {
+                Text(
+                    "No hay suficiente historial registrado en este periodo.\n" +
+                        "El historial se acumula localmente mientras la app monitorea.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = colors.textMid,
+                    modifier = Modifier.padding(top = 24.dp, bottom = 24.dp)
+                )
+            } else {
+                val hourlyKwh = com.dairoroberto.felicitywatch.domain.usecase.SolarSurplusEstimator
+                    .hourlySurplus(readings, zone)
+
+                // El día es "hoy" si el filtro selecciona un único día y ese
+                // día es el actual — ahí las horas futuras no pueden tener
+                // datos y se atenúan en vez de mostrarse como 0.0kWh (que se
+                // leería como "no hubo excedente" en vez de "no ha llegado").
+                val today = java.time.LocalDate.now(zone)
+                val isToday = dateRange.start == dateRange.end && dateRange.start == today
+                val currentHour = now.atZone(zone).hour
+
+                val total = if (isToday) {
+                    hourlyKwh.filterIndexed { hour, _ -> hour <= currentHour }.sum()
+                } else {
+                    hourlyKwh.sum()
+                }
+
+                // Total PRIMERO, no al final: responde de un vistazo "¿cuánto
+                // sobró hoy?" antes de bajar al detalle hora por hora — mismo
+                // criterio que el resumen del reporte de Voltaje.
+                Row(
+                    modifier = Modifier.fillMaxWidth().padding(top = 12.dp),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text(
+                        "TOTAL DEL DÍA",
+                        style = MaterialTheme.typography.labelSmall,
+                        fontWeight = FontWeight.Bold,
+                        color = colors.textHi
+                    )
+                    Text(
+                        String.format(Locale("es", "ES"), "%.2f kWh", total),
+                        fontFamily = com.dairoroberto.felicitywatch.ui.theme.JetBrainsMonoFamily,
+                        fontWeight = FontWeight.Bold,
+                        fontSize = 18.sp,
+                        color = colors.pvAccent
+                    )
+                }
+                if (isToday) {
+                    Text(
+                        "Acumulado hasta la hora actual — las horas que faltan del día se irán sumando.",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = colors.textLow,
+                        modifier = Modifier.padding(top = 4.dp)
+                    )
+                }
+                HorizontalDivider(modifier = Modifier.padding(top = 14.dp, bottom = 14.dp), color = colors.hairline)
+
+                // Orden DESCENDENTE desde la hora actual: lo más reciente
+                // primero, igual que el reporte de Voltaje — no tiene
+                // sentido bajar 23 filas para ver la hora en curso.
+                val hourOrder = (0..23).sortedByDescending { hour ->
+                    if (hour <= currentHour) hour + 24 else hour
+                }
+                val maxKwh = hourlyKwh.max()
+
+                val entries = hourOrder.map { hour ->
+                    val isFuture = isToday && hour > currentHour
+                    HorizontalBarEntry(
+                        label = "%02dh".format(hour),
+                        value = if (isFuture) 0f else hourlyKwh[hour].toFloat(),
+                        highlighted = !isFuture && hourlyKwh[hour] == maxKwh
+                    )
+                }
+
+                HorizontalBarList(
+                    entries = entries,
+                    barColor = colors.pvAccent,
+                    trackColor = colors.hairline.copy(alpha = 0.4f),
+                    labelColor = colors.textMid,
+                    valueColor = colors.textHi,
+                    valueFormatter = { "%.2f kWh".format(Locale("es", "ES"), it) },
+                    // Se fuerza el mismo techo de eje para las 24 filas — sin
+                    // esto, cada llamada a HorizontalBarList normalizaría por
+                    // separado y las barras dejarían de ser comparables entre
+                    // sí en el nuevo orden.
+                    maxValueOverride = maxKwh.toFloat().coerceAtLeast(0.01f)
+                )
+            }
+        }
+    }
+}
+
+/**
+ * Agrupa las lecturas por hora del día (0..23) y calcula mín/promedio/máx de
+ * [selector] para cada una. Devuelve una lista de 24 posiciones (índice =
+ * hora); `null` en las horas sin ninguna lectura de esa magnitud.
+ */
+private fun hourlyRanges(
+    readings: List<com.dairoroberto.felicitywatch.data.local.PowerReadingEntity>,
+    zone: ZoneId,
+    selector: (com.dairoroberto.felicitywatch.data.local.PowerReadingEntity) -> Double?
+): List<HourlyRange?> {
+    val byHour = readings
+        .mapNotNull { reading -> selector(reading)?.let { value -> reading to value } }
+        .groupBy { (reading, _) -> Instant.ofEpochMilli(reading.timestampEpochMillis).atZone(zone).hour }
+
+    return (0..23).map { hour ->
+        val values = byHour[hour]?.map { (_, value) -> value.toFloat() } ?: return@map null
+        if (values.isEmpty()) return@map null
+        HourlyRange(
+            hour = hour,
+            min = values.min(),
+            average = values.average().toFloat(),
+            max = values.max()
+        )
     }
 }
 

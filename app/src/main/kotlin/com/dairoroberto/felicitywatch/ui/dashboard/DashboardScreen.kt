@@ -33,6 +33,7 @@ import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Schedule
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
@@ -57,6 +58,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.hilt.navigation.compose.hiltViewModel
 import com.dairoroberto.felicitywatch.domain.model.GridState
+import com.dairoroberto.felicitywatch.domain.usecase.filterToDay
 import com.dairoroberto.felicitywatch.ui.components.MetricSparkline
 import com.dairoroberto.felicitywatch.ui.components.ProgressRing
 import com.dairoroberto.felicitywatch.ui.theme.JetBrainsMonoFamily
@@ -118,6 +120,8 @@ fun DashboardScreen(viewModel: DashboardViewModel = hiltViewModel()) {
         MetricDetailDialog(
             detail = detail,
             readings = state.allReadingsInRetention,
+            liveInverter = state.inverter,
+            liveBattery = state.battery,
             onDismiss = { metricDetail = null }
         )
     }
@@ -133,7 +137,11 @@ fun DashboardScreen(viewModel: DashboardViewModel = hiltViewModel()) {
             verticalArrangement = Arrangement.spacedBy(14.dp)
         ) {
             item { ClockAndConnectionRow(state, now, pollingIntervalSeconds) }
-            item { GridHeroCard(state, now, lowVoltageThreshold) }
+            item {
+                GridHeroCard(state, now, lowVoltageThreshold) {
+                    metricDetail = MetricDetail.VOLTAGE
+                }
+            }
             item { MetricsRow(state, now) { detail -> metricDetail = detail } }
             // Autonomía (anillo) y Excedente Solar (dos barras PV/Consumo)
             // lado a lado — el segundo reemplaza al antiguo anillo de "Carga
@@ -392,7 +400,8 @@ private fun secondsUntilNextReading(
 private fun GridHeroCard(
     state: DashboardUiState,
     now: Instant,
-    lowVoltageThreshold: Int
+    lowVoltageThreshold: Int,
+    onOpenVoltageDetail: () -> Unit
 ) {
     val colors = LocalFelicityColors.current
     val online = state.liveGridState == GridState.ONLINE
@@ -517,7 +526,8 @@ private fun GridHeroCard(
                         StatusPill(
                             icon = Icons.Default.Bolt,
                             text = formatVolts(volts),
-                            accent = if (low) MaterialTheme.colorScheme.error else colors.green
+                            accent = if (low) MaterialTheme.colorScheme.error else colors.green,
+                            onClick = onOpenVoltageDetail
                         )
                     }
                 }
@@ -558,6 +568,20 @@ private fun MetricsRow(
         modifier = Modifier.fillMaxWidth().height(IntrinsicSize.Min)
     ) {
         val pvPower = state.inverter?.pvPowerWatts
+        // Excedente ACUMULADO del día — cuánta energía sobró de generación
+        // sobre consumo, integrando la potencia neta en el tiempo (no un
+        // instantáneo). Va como highlight del card de PV: es el mismo
+        // mecanismo que usa Batería para su estimado de carga, así que
+        // agregarlo aquí no descuadra la fila (alto reservado siempre) — a
+        // diferencia de antes, que vivía en el card de Excedente Solar y
+        // lo hacía más alto que el de Autonomía.
+        val todaySurplusKwh = remember(state.allReadingsInRetention) {
+            val zone = ZoneId.systemDefault()
+            val today = java.time.LocalDate.now(zone)
+            val todayReadings = state.allReadingsInRetention.filterToDay(today, zone)
+            com.dairoroberto.felicitywatch.domain.usecase.SolarSurplusEstimator
+                .dailySurplusKwh(todayReadings, zone)
+        }
         MetricCard(
             modifier = Modifier.weight(1f).fillMaxHeight(),
             label = "GENERACIÓN PV",
@@ -571,6 +595,11 @@ private fun MetricsRow(
             ),
             lastReadingAt = state.lastSuccessfulReadingAt,
             now = now,
+            highlightText = if (todaySurplusKwh > 0.0) {
+                String.format(Locale("es", "ES"), "%.2f kWh sobrante hoy", todaySurplusKwh)
+            } else null,
+            highlightColor = LocalFelicityColors.current.pvAccent,
+            highlightIcon = Icons.Default.Bolt,
             sparkline = pvHistoryToday(state),
             sparklineColor = LocalFelicityColors.current.pvAccent
         )
@@ -814,18 +843,30 @@ private fun BatteryRuntimeRing(state: DashboardUiState, modifier: Modifier = Mod
     val colors = LocalFelicityColors.current
     val soc = state.battery?.socPercent
     val loadWatts = state.inverter?.loadPowerWatts
+    val pvWatts = state.inverter?.pvPowerWatts
     val capacityAh = state.battery?.capacityAh
     val voltage = state.battery?.voltage
     val onGrid = state.liveGridState == GridState.ONLINE
 
+    // Pasa pvWatts: sin esto, con el sol generando más que el consumo (la
+    // batería ni se está descargando) igual se calculaban horas como si
+    // toda la casa dependiera solo de la batería. Ver el comentario de
+    // estimateBatteryRuntimeHours para el detalle.
     val runtimeHours: Double? = if (!onGrid) {
-        com.dairoroberto.felicitywatch.domain.usecase.estimateBatteryRuntimeHours(soc, loadWatts, capacityAh, voltage)
+        com.dairoroberto.felicitywatch.domain.usecase.estimateBatteryRuntimeHours(
+            soc, loadWatts, capacityAh, voltage, pvWatts
+        )
     } else null
 
     val protected = onGrid && soc != null
+    // El sol cubre el consumo actual: no hay déficit que descargue la
+    // batería ahora mismo. Distinto de "protected" (que es por RED), pero
+    // se muestra igual — para el usuario el resultado práctico es el mismo:
+    // la batería no se está gastando.
+    val solarCovered = runtimeHours == Double.POSITIVE_INFINITY
 
     val ringColor = when {
-        protected -> colors.green
+        protected || solarCovered -> colors.green
         runtimeHours == null -> colors.textLow
         runtimeHours > 5 -> colors.green
         runtimeHours > 2 -> MaterialTheme.colorScheme.secondary
@@ -834,16 +875,17 @@ private fun BatteryRuntimeRing(state: DashboardUiState, modifier: Modifier = Mod
 
     ProjectionCard(
         label = "AUTONOMÍA",
-        ringColor = if (protected || runtimeHours != null) ringColor else colors.textLow,
+        ringColor = if (protected || solarCovered || runtimeHours != null) ringColor else colors.textLow,
         progress = (soc ?: 0) / 100f,
         subtitle = when {
             protected -> "Con corriente — no se descarga"
+            solarCovered -> "El sol cubre el consumo — no se descarga"
             runtimeHours == null -> "Sin consumo que estimar"
             else -> null
         },
         modifier = modifier
     ) {
-        if (protected) {
+        if (protected || solarCovered) {
             Icon(
                 Icons.Default.CheckCircle,
                 contentDescription = "Batería protegida",
@@ -1348,9 +1390,11 @@ private fun currentVoltage(state: DashboardUiState, online: Boolean, unknown: Bo
         state.inverter?.outputVoltage
     } ?: return null
 
-    // Un voltaje de 0 no es un dato útil: sería una contradicción del propio
-    // equipo estando la casa alimentada.
-    return if (volts > 0) volts else null
+    // Un voltaje casi nulo no es un dato útil: sería una contradicción del
+    // propio equipo estando la casa alimentada. El umbral es 1V y no 0 porque
+    // la vía inactiva no reporta un 0 limpio, sino fracciones de voltio
+    // (0,5-0,6V medidos en vivo).
+    return if (volts >= 1.0) volts else null
 }
 
 /** Un decimal: el voltaje fluctúa y más precisión sería ruido. */
@@ -1372,10 +1416,11 @@ private fun formatVolts(volts: Double): String =
 private fun StatusPill(
     icon: androidx.compose.ui.graphics.vector.ImageVector,
     text: String,
-    accent: Color
+    accent: Color,
+    onClick: (() -> Unit)? = null
 ) {
     Row(
-        modifier = Modifier
+        modifier = (if (onClick != null) Modifier.clickable(onClick = onClick) else Modifier)
             .clip(RoundedCornerShape(50))
             .background(accent.copy(alpha = 0.14f))
             .padding(horizontal = 10.dp, vertical = 5.dp),
