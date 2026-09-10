@@ -96,6 +96,7 @@ fun DashboardScreen(viewModel: DashboardViewModel = hiltViewModel()) {
     // la próxima lectura real aunque el tiempo transcurrido sí cambie.
     // Metrica cuyo detalle se esta mostrando; null = ningun modal abierto.
     var metricDetail by remember { mutableStateOf<MetricDetail?>(null) }
+    var showGridTimeline by remember { mutableStateOf(false) }
 
     var now by remember { mutableStateOf(Instant.now()) }
     LaunchedEffect(Unit) {
@@ -126,6 +127,15 @@ fun DashboardScreen(viewModel: DashboardViewModel = hiltViewModel()) {
         )
     }
 
+    if (showGridTimeline) {
+        GridDayTimelineDialog(
+            segments = remember(state.allReadingsInRetention, now) {
+                com.dairoroberto.felicitywatch.domain.usecase.buildGridSegments(state.allReadingsInRetention, now.toEpochMilli())
+            },
+            onDismiss = { showGridTimeline = false }
+        )
+    }
+
     PullToRefreshBox(
         isRefreshing = isRefreshing,
         onRefresh = { viewModel.refreshNow() },
@@ -138,9 +148,13 @@ fun DashboardScreen(viewModel: DashboardViewModel = hiltViewModel()) {
         ) {
             item { ClockAndConnectionRow(state, now, pollingIntervalSeconds) }
             item {
-                GridHeroCard(state, now, lowVoltageThreshold) {
-                    metricDetail = MetricDetail.VOLTAGE
-                }
+                GridHeroCard(
+                    state = state,
+                    now = now,
+                    lowVoltageThreshold = lowVoltageThreshold,
+                    onOpenVoltageDetail = { metricDetail = MetricDetail.VOLTAGE },
+                    onOpenGridTimeline = { showGridTimeline = true }
+                )
             }
             item { MetricsRow(state, now) { detail -> metricDetail = detail } }
             // Autonomía (anillo) y Excedente Solar (dos barras PV/Consumo)
@@ -401,7 +415,8 @@ private fun GridHeroCard(
     state: DashboardUiState,
     now: Instant,
     lowVoltageThreshold: Int,
-    onOpenVoltageDetail: () -> Unit
+    onOpenVoltageDetail: () -> Unit,
+    onOpenGridTimeline: () -> Unit
 ) {
     val colors = LocalFelicityColors.current
     val online = state.liveGridState == GridState.ONLINE
@@ -456,12 +471,16 @@ private fun GridHeroCard(
                     )
                 }
                 // Solo el tiempo transcurrido: el voltaje va al pie del card,
-                // junto a la hora de inicio del tramo.
+                // junto a la hora de inicio del tramo. Clickeable: abre la
+                // línea de tiempo de hoy (00-23) con los tramos con/sin
+                // corriente, para ver de un vistazo cuántos cortes hubo y
+                // cuándo, sin tener que ir al Reporte.
                 if (elapsedText != null) {
                     StatusPill(
                         icon = Icons.Default.Schedule,
                         text = elapsedText,
-                        accent = accent
+                        accent = accent,
+                        onClick = onOpenGridTimeline
                     )
                 }
             }
@@ -511,7 +530,7 @@ private fun GridHeroCard(
                         gridSinceLabel(lastSegment, online, unknown),
                         style = MaterialTheme.typography.bodySmall,
                         color = colors.textMid,
-                        modifier = Modifier.weight(1f)
+                        modifier = Modifier.weight(1f).clickable(onClick = onOpenGridTimeline)
                     )
                     // Con corriente, el voltaje de la calle; sin ella, el de salida
                     // del inversor hacia la casa. Su color es INDEPENDIENTE del
