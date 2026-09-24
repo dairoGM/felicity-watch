@@ -44,7 +44,11 @@ class SupabaseSyncRepository @Inject constructor(
      * ciclo normal de monitoreo, una vez habilitada la sincronización. */
     suspend fun pushReading(reading: PowerReadingEntity) {
         val deviceId = appPreferences.supabaseDeviceId()
-        val response = api.insertReadings(prefer = INSERT_PREFER, readings = listOf(reading.toDto(deviceId)))
+        val response = api.insertReadings(
+            onConflict = INSERT_ON_CONFLICT,
+            prefer = INSERT_PREFER,
+            readings = listOf(reading.toDto(deviceId))
+        )
         if (!response.isSuccessful) {
             throw SupabaseSyncException(response.code(), response.errorBody()?.string())
         }
@@ -68,7 +72,11 @@ class SupabaseSyncRepository @Inject constructor(
             if (page.isEmpty()) break
 
             val dtos = page.map { it.toDto(deviceId) }
-            val response = api.insertReadings(prefer = INSERT_PREFER, readings = dtos)
+            val response = api.insertReadings(
+                onConflict = INSERT_ON_CONFLICT,
+                prefer = INSERT_PREFER,
+                readings = dtos
+            )
             if (!response.isSuccessful) {
                 throw SupabaseSyncException(response.code(), response.errorBody()?.string())
             }
@@ -110,5 +118,10 @@ class SupabaseSyncRepository @Inject constructor(
          * un parámetro @Header en una interfaz Retrofit no siempre se
          * aplican de forma confiable a través del proxy dinámico. */
         private const val INSERT_PREFER = "resolution=ignore-duplicates,return=minimal"
+
+        /** PostgREST solo respeta `ignore-duplicates` si además se le dice
+         * contra qué columnas puede haber conflicto — deben ser exactamente
+         * las del UNIQUE de la tabla (ver supabase_bootstrap.sql). */
+        private const val INSERT_ON_CONFLICT = "device_id,timestamp_epoch_millis"
     }
 }

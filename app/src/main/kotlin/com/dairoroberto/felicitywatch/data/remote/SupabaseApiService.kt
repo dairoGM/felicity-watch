@@ -5,6 +5,7 @@ import retrofit2.Response
 import retrofit2.http.Body
 import retrofit2.http.Header
 import retrofit2.http.POST
+import retrofit2.http.Query
 
 /**
  * PostgREST (la API REST automática de Supabase) para la tabla
@@ -19,10 +20,15 @@ interface SupabaseApiService {
      * reintento (ej. subió pero la respuesta se perdió por la red) no falle
      * por violar el UNIQUE(device_id, timestamp_epoch_millis) de la tabla —
      * simplemente ignora las que ya existen, en vez de que todo el lote
-     * falle por una fila repetida.
+     * falle por una fila repetida. PostgREST solo aplica esa resolución
+     * cuando además se le dice CONTRA QUÉ columnas puede haber conflicto,
+     * vía `on_conflict`; sin este query param, ignora la resolución y hace
+     * un INSERT plano que sí revienta con 409 (verificado contra el
+     * servidor real).
      */
     @POST("rest/v1/power_readings")
     suspend fun insertReadings(
+        @Query("on_conflict") onConflict: String,
         @Header("Prefer") prefer: String,
         @Body readings: List<SupabasePowerReadingDto>
     ): Response<Unit>
