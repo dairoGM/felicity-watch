@@ -3,6 +3,7 @@ package com.dairoroberto.felicitywatch.domain.usecase
 import com.dairoroberto.felicitywatch.data.local.AppPreferences
 import com.dairoroberto.felicitywatch.data.local.CredentialsStore
 import com.dairoroberto.felicitywatch.data.repository.AlertRuleRepository
+import com.dairoroberto.felicitywatch.data.repository.DeviceRoleRepository
 import com.dairoroberto.felicitywatch.data.repository.FelicityCredentialsMissingException
 import com.dairoroberto.felicitywatch.data.repository.FelicityRepository
 import com.dairoroberto.felicitywatch.data.repository.PowerHistoryRepository
@@ -37,7 +38,8 @@ class RunMonitoringCycleUseCase @Inject constructor(
     private val stateHolder: MonitoringStateHolder,
     private val powerHistoryRepository: PowerHistoryRepository,
     private val notifyApplianceChangeUseCase: NotifyApplianceChangeUseCase,
-    private val notifyLowVoltageUseCase: NotifyLowVoltageUseCase
+    private val notifyLowVoltageUseCase: NotifyLowVoltageUseCase,
+    private val deviceRoleRepository: DeviceRoleRepository
 ) {
     suspend fun run(): SystemReading {
         if (!credentialsStore.hasFsolarCredentials()) {
@@ -73,6 +75,16 @@ class RunMonitoringCycleUseCase @Inject constructor(
             outputVoltage = reading.inverter?.outputVoltage,
             now = now
         )
+
+        // "Última actividad" para la vista de Dispositivos en la master —
+        // cada ciclo exitoso (master o cliente ya aprobado) es evidencia de
+        // que este dispositivo sigue vivo. Best-effort: sin red o con
+        // Supabase caído, no debe cortar el ciclo de monitoreo.
+        try {
+            deviceRoleRepository.touchLastSeen()
+        } catch (e: Exception) {
+            // Ignorado a propósito.
+        }
 
         // Aviso de equipo encendido/apagado. Va después de registrar el
         // historial y envuelto en try/catch porque es una función accesoria:

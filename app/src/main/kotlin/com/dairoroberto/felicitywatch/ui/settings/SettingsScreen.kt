@@ -59,6 +59,7 @@ import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Tab
+import androidx.compose.material3.ScrollableTabRow
 import androidx.compose.material3.TabRow
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -214,12 +215,23 @@ fun SettingsScreen(
     ) { scaffoldPadding ->
         Column(Modifier.fillMaxSize().padding(scaffoldPadding)) {
             val colors = LocalFelicityColors.current
-            TabRow(selectedTabIndex = selectedTab, containerColor = colors.surface2) {
+            ScrollableTabRow(
+                selectedTabIndex = selectedTab,
+                containerColor = colors.surface2,
+                edgePadding = 12.dp
+            ) {
                 settingsTabs.forEachIndexed { index, title ->
                     Tab(
                         selected = selectedTab == index,
                         onClick = { selectedTab = index },
-                        text = { Text(title, style = MaterialTheme.typography.labelSmall) }
+                        text = {
+                            Text(
+                                title,
+                                style = MaterialTheme.typography.labelSmall,
+                                maxLines = 1,
+                                softWrap = false
+                            )
+                        }
                     )
                 }
             }
@@ -1144,7 +1156,16 @@ private fun LazyListScope.devicesTab(viewModel: SettingsViewModel) {
         val devices by viewModel.accountDevices.collectAsState()
         val loadingDevices by viewModel.isLoadingDevices.collectAsState()
 
-        LaunchedEffect(Unit) { viewModel.loadAccountDevices() }
+        // Refresca sola mientras esta pestaña está abierta — antes solo
+        // cargaba una vez al entrar, así que un cambio hecho desde otro
+        // dispositivo (o revocar/aprobar en la misma sesión) no se veía
+        // hasta salir del tab y volver a entrar.
+        LaunchedEffect(Unit) {
+            while (true) {
+                viewModel.loadAccountDevices()
+                kotlinx.coroutines.delay(15_000)
+            }
+        }
 
         SectionCard(title = "Dispositivos registrados") {
             if (loadingDevices) {

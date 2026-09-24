@@ -101,6 +101,7 @@ fun DeviceBlockedScreen(
                 },
                 label = { Text("Código de 6 dígitos") },
                 singleLine = true,
+                keyboardOptions = androidx.compose.foundation.text.KeyboardOptions(keyboardType = androidx.compose.ui.text.input.KeyboardType.Number),
                 isError = errorMessage != null,
                 supportingText = errorMessage?.let { { Text(it) } },
                 modifier = Modifier.fillMaxWidth()
