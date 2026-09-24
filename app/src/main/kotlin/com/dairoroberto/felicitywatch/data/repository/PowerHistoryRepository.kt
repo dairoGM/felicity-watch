@@ -1,8 +1,10 @@
 package com.dairoroberto.felicitywatch.data.repository
 
+import com.dairoroberto.felicitywatch.data.local.AppPreferences
 import com.dairoroberto.felicitywatch.data.local.PowerReadingDao
 import com.dairoroberto.felicitywatch.data.local.PowerReadingEntity
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.first
 import java.time.Duration
 import java.time.Instant
 import javax.inject.Inject
@@ -10,7 +12,9 @@ import javax.inject.Singleton
 
 @Singleton
 class PowerHistoryRepository @Inject constructor(
-    private val dao: PowerReadingDao
+    private val dao: PowerReadingDao,
+    private val appPreferences: AppPreferences,
+    private val supabaseSyncRepository: SupabaseSyncRepository
 ) {
     fun observeLast24Hours(): Flow<List<PowerReadingEntity>> =
         dao.observeSince(Instant.now().minus(Duration.ofHours(24)).toEpochMilli())
@@ -43,23 +47,35 @@ class PowerHistoryRepository @Inject constructor(
         outputVoltage: Double?,
         now: Instant
     ) {
-        dao.insert(
-            PowerReadingEntity(
-                timestampEpochMillis = now.toEpochMilli(),
-                pvPowerWatts = pvPowerWatts,
-                gridPowerWatts = gridPowerWatts,
-                socPercent = socPercent,
-                loadPowerWatts = loadPowerWatts,
-                batteryPowerWatts = batteryPowerWatts,
-                pvEnergyTodayKwh = pvEnergyTodayKwh,
-                loadEnergyTodayKwh = loadEnergyTodayKwh,
-                gridVoltage = gridVoltage,
-                outputVoltage = outputVoltage
-            )
+        val reading = PowerReadingEntity(
+            timestampEpochMillis = now.toEpochMilli(),
+            pvPowerWatts = pvPowerWatts,
+            gridPowerWatts = gridPowerWatts,
+            socPercent = socPercent,
+            loadPowerWatts = loadPowerWatts,
+            batteryPowerWatts = batteryPowerWatts,
+            pvEnergyTodayKwh = pvEnergyTodayKwh,
+            loadEnergyTodayKwh = loadEnergyTodayKwh,
+            gridVoltage = gridVoltage,
+            outputVoltage = outputVoltage
         )
+        dao.insert(reading)
         // Poda liviana: retiene RETENTION_DAYS para que el Reporte y la
         // estimación de Factura tengan margen razonable sin crecer sin límite.
         dao.deleteOlderThan(now.minus(Duration.ofDays(RETENTION_DAYS)).toEpochMilli())
+
+        // Espejo en Supabase, solo si el usuario ya migró su historial y
+        // activó la sincronización. Nunca debe poder tumbar el guardado
+        // local: sin red, con Supabase caído, o con la tabla aún sin crear,
+        // esto simplemente se salta en silencio y la próxima lectura lo
+        // vuelve a intentar.
+        if (appPreferences.supabaseSyncEnabled.first()) {
+            try {
+                supabaseSyncRepository.pushReading(reading)
+            } catch (_: Exception) {
+                // Best-effort: la próxima lectura reintenta sola.
+            }
+        }
     }
 
     suspend fun clearAll() = dao.deleteAll()

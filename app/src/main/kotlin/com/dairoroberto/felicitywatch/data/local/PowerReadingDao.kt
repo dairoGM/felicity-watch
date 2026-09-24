@@ -32,6 +32,14 @@ interface PowerReadingDao {
     @Query("DELETE FROM power_readings WHERE timestampEpochMillis < :beforeEpochMillis")
     suspend fun deleteOlderThan(beforeEpochMillis: Long)
 
+    @Query("SELECT COUNT(*) FROM power_readings")
+    suspend fun count(): Int
+
+    /** Página del historial completo para la migración inicial a Supabase —
+     * paginada para no cargar meses de lecturas en memoria de una vez. */
+    @Query("SELECT * FROM power_readings ORDER BY timestampEpochMillis ASC LIMIT :limit OFFSET :offset")
+    suspend fun getPage(limit: Int, offset: Int): List<PowerReadingEntity>
+
     @Query("DELETE FROM power_readings")
     suspend fun deleteAll()
 }

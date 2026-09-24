@@ -4,6 +4,8 @@ import com.dairoroberto.felicitywatch.BuildConfig
 import com.dairoroberto.felicitywatch.data.remote.FelicityApiService
 import com.dairoroberto.felicitywatch.data.remote.RawResponseInterceptor
 import com.dairoroberto.felicitywatch.data.remote.RawResponseRecorder
+import com.dairoroberto.felicitywatch.data.remote.SupabaseApiService
+import com.dairoroberto.felicitywatch.data.remote.SupabaseConfig
 import com.dairoroberto.felicitywatch.notification.CallMeBotApi
 import dagger.Module
 import dagger.Provides
@@ -95,4 +97,47 @@ object NetworkModule {
     @Singleton
     fun provideCallMeBotApi(@Named("callmebot") retrofit: Retrofit): CallMeBotApi =
         retrofit.create(CallMeBotApi::class.java)
+
+    @Provides
+    @Singleton
+    @Named("supabase")
+    fun provideSupabaseOkHttpClient(): OkHttpClient {
+        val builder = OkHttpClient.Builder()
+            .connectTimeout(15, TimeUnit.SECONDS)
+            .readTimeout(15, TimeUnit.SECONDS)
+            .writeTimeout(15, TimeUnit.SECONDS)
+            // PostgREST exige estos dos headers en toda solicitud; se
+            // inyectan aquí en vez de en cada llamada del servicio para que
+            // el repositorio no tenga que acordarse de mandarlos.
+            .addInterceptor { chain ->
+                val request = chain.request().newBuilder()
+                    .addHeader("apikey", SupabaseConfig.ANON_KEY)
+                    .addHeader("Authorization", "Bearer ${SupabaseConfig.ANON_KEY}")
+                    .build()
+                chain.proceed(request)
+            }
+
+        if (BuildConfig.DEBUG) {
+            val logging = HttpLoggingInterceptor().apply {
+                level = HttpLoggingInterceptor.Level.BASIC
+            }
+            builder.addInterceptor(logging)
+        }
+
+        return builder.build()
+    }
+
+    @Provides
+    @Singleton
+    @Named("supabase")
+    fun provideSupabaseRetrofit(@Named("supabase") client: OkHttpClient): Retrofit = Retrofit.Builder()
+        .baseUrl(SupabaseConfig.BASE_URL)
+        .client(client)
+        .addConverterFactory(GsonConverterFactory.create())
+        .build()
+
+    @Provides
+    @Singleton
+    fun provideSupabaseApiService(@Named("supabase") retrofit: Retrofit): SupabaseApiService =
+        retrofit.create(SupabaseApiService::class.java)
 }

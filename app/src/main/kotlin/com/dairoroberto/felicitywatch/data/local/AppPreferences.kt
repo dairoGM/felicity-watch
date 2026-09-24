@@ -9,6 +9,7 @@ import androidx.datastore.preferences.core.stringPreferencesKey
 import androidx.datastore.preferences.preferencesDataStore
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
 import javax.inject.Inject
 import javax.inject.Singleton
@@ -126,6 +127,35 @@ class AppPreferences @Inject constructor(@ApplicationContext private val context
         context.dataStore.edit { it[KEY_PV_ALERT_WINDOW_END_HOUR] = hour }
     }
 
+    /** Identificador estable de esta instalación — separa las filas de este
+     * teléfono de las de otro dispositivo (o una reinstalación) dentro de
+     * la misma tabla de Supabase. Se genera una sola vez y no cambia. */
+    suspend fun supabaseDeviceId(): String {
+        val existing = context.dataStore.data.map { it[KEY_SUPABASE_DEVICE_ID] }.first()
+        if (existing != null) return existing
+        val generated = java.util.UUID.randomUUID().toString()
+        context.dataStore.edit { it[KEY_SUPABASE_DEVICE_ID] = generated }
+        return generated
+    }
+
+    /** true una vez que la migración inicial del histórico local a Supabase terminó con éxito. */
+    val supabaseMigrationDone: Flow<Boolean> = context.dataStore.data
+        .map { it[KEY_SUPABASE_MIGRATION_DONE] ?: false }
+
+    suspend fun setSupabaseMigrationDone(done: Boolean) {
+        context.dataStore.edit { it[KEY_SUPABASE_MIGRATION_DONE] = done }
+    }
+
+    /** Sincronización continua tras la migración: cada lectura nueva se
+     * intenta subir también a Supabase (best-effort, nunca bloquea el
+     * guardado local). Se activa sola al completar la migración. */
+    val supabaseSyncEnabled: Flow<Boolean> = context.dataStore.data
+        .map { it[KEY_SUPABASE_SYNC_ENABLED] ?: false }
+
+    suspend fun setSupabaseSyncEnabled(enabled: Boolean) {
+        context.dataStore.edit { it[KEY_SUPABASE_SYNC_ENABLED] = enabled }
+    }
+
     companion object {
         private val KEY_LAST_READING_MILLIS = longPreferencesKey("last_reading_epoch_millis")
         private val KEY_LAST_GRID_STATE = stringPreferencesKey("last_grid_state")
@@ -180,6 +210,10 @@ class AppPreferences @Inject constructor(@ApplicationContext private val context
         private val KEY_NIGHT_WINDOW_END_HOUR = intPreferencesKey("night_window_end_hour")
         const val DEFAULT_NIGHT_WINDOW_START_HOUR = 22
         const val DEFAULT_NIGHT_WINDOW_END_HOUR = 8
+
+        private val KEY_SUPABASE_DEVICE_ID = stringPreferencesKey("supabase_device_id")
+        private val KEY_SUPABASE_MIGRATION_DONE = booleanPreferencesKey("supabase_migration_done")
+        private val KEY_SUPABASE_SYNC_ENABLED = booleanPreferencesKey("supabase_sync_enabled")
 
         private val KEY_PV_ALERT_WINDOW_START_HOUR = intPreferencesKey("pv_alert_window_start_hour")
         private val KEY_PV_ALERT_WINDOW_END_HOUR = intPreferencesKey("pv_alert_window_end_hour")

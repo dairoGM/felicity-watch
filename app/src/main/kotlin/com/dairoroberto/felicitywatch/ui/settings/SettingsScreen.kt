@@ -46,6 +46,7 @@ import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.FilterChipDefaults
 import androidx.compose.material3.Icon
+import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
@@ -76,6 +77,7 @@ import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import com.dairoroberto.felicitywatch.data.local.AppPreferences
+import com.dairoroberto.felicitywatch.data.repository.MigrationProgress
 import com.dairoroberto.felicitywatch.ui.alerts.AlertsViewModel
 import com.dairoroberto.felicitywatch.ui.alerts.alertRuleItems
 import com.dairoroberto.felicitywatch.ui.components.ApiKeyField
@@ -814,6 +816,81 @@ private fun LazyListScope.systemTab(
                     )
                 }
                 Switch(checked = darkModeEnabled, onCheckedChange = onToggleDarkMode)
+            }
+        }
+    }
+
+    item {
+        val colors = LocalFelicityColors.current
+        val migrationDone by viewModel.supabaseMigrationDone.collectAsState()
+        val syncEnabled by viewModel.supabaseSyncEnabled.collectAsState()
+        val progress by viewModel.migrationProgress.collectAsState()
+
+        SectionCard(title = "Sincronización en la nube") {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Icon(Icons.Default.CloudSync, contentDescription = null, tint = colors.accent)
+                Text(
+                    "Respalda tu historial en la nube (Supabase) para poder consultarlo desde otro " +
+                        "dispositivo. El guardado local sigue funcionando igual, con o sin conexión.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = colors.textMid,
+                    modifier = Modifier.padding(start = 8.dp)
+                )
+            }
+
+            if (!migrationDone) {
+                val inProgress = progress as? MigrationProgress.InProgress
+                if (inProgress != null && inProgress.total > 0) {
+                    Text(
+                        "Migrando: ${inProgress.uploaded} / ${inProgress.total} lecturas",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = colors.textMid,
+                        modifier = Modifier.padding(top = SECTION_CONTENT_SPACING)
+                    )
+                    LinearProgressIndicator(
+                        progress = { inProgress.uploaded.toFloat() / inProgress.total.toFloat() },
+                        modifier = Modifier.fillMaxWidth().padding(top = 4.dp)
+                    )
+                }
+                val failure = progress as? MigrationProgress.Failed
+                if (failure != null) {
+                    Text(
+                        "Falló la migración: ${failure.message}. Puedes intentarlo de nuevo.",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.error,
+                        modifier = Modifier.padding(top = SECTION_CONTENT_SPACING)
+                    )
+                }
+                ActionButton(
+                    text = "Migrar historial a la nube",
+                    icon = Icons.Default.CloudSync,
+                    loading = progress is MigrationProgress.InProgress,
+                    onClick = { viewModel.migrateToSupabase() },
+                    modifier = Modifier.padding(top = SECTION_CONTENT_SPACING)
+                )
+            } else {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    modifier = Modifier.fillMaxWidth().padding(top = SECTION_CONTENT_SPACING)
+                ) {
+                    Text(
+                        if (syncEnabled) "Sincronización activada" else "Sincronización desactivada",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = if (syncEnabled) colors.green else colors.textMid,
+                        modifier = Modifier.weight(1f)
+                    )
+                    Switch(
+                        checked = syncEnabled,
+                        onCheckedChange = { viewModel.setSupabaseSyncEnabled(it) }
+                    )
+                }
+                Text(
+                    "Historial ya migrado. Cada lectura nueva se guarda también en la nube" +
+                        (if (syncEnabled) "." else ", pero está pausado."),
+                    style = MaterialTheme.typography.labelSmall,
+                    color = colors.textLow,
+                    modifier = Modifier.padding(top = 4.dp)
+                )
             }
         }
     }

@@ -9,6 +9,8 @@ import com.dairoroberto.felicitywatch.data.remote.RawResponseRecorder
 import com.dairoroberto.felicitywatch.data.repository.AlertEventRepository
 import com.dairoroberto.felicitywatch.data.repository.AlertRuleRepository
 import com.dairoroberto.felicitywatch.data.repository.FelicityRepository
+import com.dairoroberto.felicitywatch.data.repository.MigrationProgress
+import com.dairoroberto.felicitywatch.data.repository.SupabaseSyncRepository
 import com.dairoroberto.felicitywatch.domain.usecase.RunMonitoringCycleUseCase
 import com.dairoroberto.felicitywatch.domain.usecase.describeMonitoringError
 import com.dairoroberto.felicitywatch.notification.LowVoltageAlertPlayer
@@ -53,6 +55,7 @@ class SettingsViewModel @Inject constructor(
     private val runMonitoringCycleUseCase: RunMonitoringCycleUseCase,
     stateHolder: MonitoringStateHolder,
     private val rawResponseRecorder: RawResponseRecorder,
+    private val supabaseSyncRepository: SupabaseSyncRepository,
     @ApplicationContext private val context: Context
 ) : ViewModel() {
 
@@ -306,6 +309,41 @@ class SettingsViewModel @Inject constructor(
 
     fun copyDeviceListJsonToClipboard() {
         copyRawJsonToClipboard("listado de dispositivos", rawResponseRecorder.lastDeviceListBody)
+    }
+
+    val supabaseMigrationDone: StateFlow<Boolean> = appPreferences.supabaseMigrationDone
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), false)
+
+    val supabaseSyncEnabled: StateFlow<Boolean> = appPreferences.supabaseSyncEnabled
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), false)
+
+    private val _migrationProgress = MutableStateFlow<MigrationProgress>(MigrationProgress.Idle)
+    val migrationProgress: StateFlow<MigrationProgress> = _migrationProgress
+
+    /** Sube todo el historial local a Supabase. Se puede reintentar sin
+     * duplicar filas si falla a la mitad (ver [SupabaseSyncRepository.migrateAll]). */
+    fun migrateToSupabase() {
+        if (_migrationProgress.value is MigrationProgress.InProgress) return
+        viewModelScope.launch {
+            _migrationProgress.value = MigrationProgress.InProgress(0, 0)
+            try {
+                supabaseSyncRepository.migrateAll { uploaded, total ->
+                    _migrationProgress.value = MigrationProgress.InProgress(uploaded, total)
+                }
+                _migrationProgress.value = MigrationProgress.Success
+                emit("Historial migrado a la nube. Los nuevos datos se guardarán también ahí.")
+            } catch (e: Exception) {
+                _migrationProgress.value = MigrationProgress.Failed(describeMonitoringError(e))
+                emit("Falló la migración: ${describeMonitoringError(e)}")
+            }
+        }
+    }
+
+    fun setSupabaseSyncEnabled(enabled: Boolean) {
+        viewModelScope.launch {
+            appPreferences.setSupabaseSyncEnabled(enabled)
+            emit(if (enabled) "Sincronización con la nube activada" else "Sincronización con la nube desactivada")
+        }
     }
 
     /** Diagnóstico sin USB: copia la última respuesta cruda de Felicity para pegarla donde haga falta. */
