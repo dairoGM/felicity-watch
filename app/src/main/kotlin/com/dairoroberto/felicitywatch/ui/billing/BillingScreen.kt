@@ -1,6 +1,7 @@
 package com.dairoroberto.felicitywatch.ui.billing
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -12,24 +13,35 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.LazyRow
-import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Bolt
+import androidx.compose.material.icons.filled.ChevronLeft
+import androidx.compose.material.icons.filled.ChevronRight
 import androidx.compose.material.icons.filled.Info
+import androidx.compose.material.icons.filled.KeyboardArrowDown
 import androidx.compose.material.icons.filled.Savings
 import androidx.compose.material.icons.filled.TrendingUp
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
-import androidx.compose.material3.FilterChip
-import androidx.compose.material3.FilterChipDefaults
+import androidx.compose.material3.DatePicker
+import androidx.compose.material3.DatePickerDialog
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
+import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.SegmentedButton
+import androidx.compose.material3.SegmentedButtonDefaults
+import androidx.compose.material3.SingleChoiceSegmentedButtonRow
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
+import androidx.compose.material3.rememberDatePickerState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
@@ -50,8 +62,11 @@ import com.dairoroberto.felicitywatch.domain.usecase.DailyBilling
 import com.dairoroberto.felicitywatch.domain.usecase.ElectricityTariff
 import com.dairoroberto.felicitywatch.ui.theme.JetBrainsMonoFamily
 import com.dairoroberto.felicitywatch.ui.theme.LocalFelicityColors
+import java.time.LocalDate
 import java.time.YearMonth
+import java.time.ZoneId
 import java.time.format.DateTimeFormatter
+import java.time.format.FormatStyle
 import java.util.Locale
 
 /**
@@ -61,10 +76,10 @@ import java.util.Locale
  * ("cuánto llevo consumido este mes y cuánto me toca pagar") está arriba de
  * todo, sin necesidad de bajar ni de restar nada a mano.
  */
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun BillingScreen(viewModel: BillingViewModel = hiltViewModel()) {
     val state by viewModel.uiState.collectAsState()
-    val colors = LocalFelicityColors.current
     val estimate = state.estimate
 
     LazyColumn(
@@ -73,11 +88,14 @@ fun BillingScreen(viewModel: BillingViewModel = hiltViewModel()) {
         verticalArrangement = Arrangement.spacedBy(14.dp)
     ) {
         item {
-            MonthFilterRow(
-                months = state.availableMonths,
-                selection = state.selection,
-                onSelect = { viewModel.selectMonth(it) },
-                onSelectRange = { from, to -> viewModel.selectRange(from, to) }
+            BillingRangeFilterRow(
+                range = state.range,
+                onToday = { viewModel.setToday() },
+                onThisMonth = { viewModel.setThisMonth() },
+                onLast7Days = { viewModel.setLast7Days() },
+                onLast30Days = { viewModel.setLast30Days() },
+                onShift = { forward -> viewModel.shiftRange(forward) },
+                onCustomRange = { start, end -> viewModel.setCustomRange(start, end) }
             )
         }
 
@@ -86,15 +104,17 @@ fun BillingScreen(viewModel: BillingViewModel = hiltViewModel()) {
             return@LazyColumn
         }
 
-        // 1. TODO lo importante en un solo vistazo: total del mes, cuánto se
-        // paga, cuánto se ahorra, y qué porcentaje cubre el sistema. Antes
+        // 1. TODO lo importante en un solo vistazo: total del periodo, cuánto
+        // se paga, cuánto se ahorra, y qué porcentaje cubre el sistema. Antes
         // esto eran 3 tarjetas separadas (a pagar / ahorro / reparto) que
         // había que leer una por una para armar el panorama completo.
         item {
             MonthSummaryCard(
                 estimate = estimate,
                 projectedCost = state.projectedMonthEndCost,
-                projectedKwh = state.projectedMonthEndKwh
+                projectedKwh = state.projectedMonthEndKwh,
+                filter = state.filter,
+                onFilterChange = { viewModel.setFilter(it) }
             )
         }
 
@@ -115,20 +135,86 @@ fun BillingScreen(viewModel: BillingViewModel = hiltViewModel()) {
 }
 
 /* ------------------------------------------------------------------ */
-/* Filtro de meses                                                     */
+/* Filtro de periodo — mismo patrón visual que el Reporte de Consumo,  */
+/* para que elegir "01/09 al 15/09" signifique lo mismo en ambas       */
+/* pantallas.                                                          */
 /* ------------------------------------------------------------------ */
 
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
-private fun MonthFilterRow(
-    months: List<YearMonth>,
-    selection: MonthRange,
-    onSelect: (YearMonth) -> Unit,
-    onSelectRange: (YearMonth, YearMonth) -> Unit
+private fun BillingRangeFilterRow(
+    range: BillingDateRange,
+    onToday: () -> Unit,
+    onThisMonth: () -> Unit,
+    onLast7Days: () -> Unit,
+    onLast30Days: () -> Unit,
+    onShift: (Boolean) -> Unit,
+    onCustomRange: (LocalDate, LocalDate) -> Unit
 ) {
     val colors = LocalFelicityColors.current
-    // Primer toque elige un mes; el segundo, si es distinto, forma el rango.
-    // Es más directo que dos selectores separados de "desde" y "hasta".
-    var rangeAnchor by remember { mutableStateOf<YearMonth?>(null) }
+    val zone = ZoneId.systemDefault()
+    val dateFormatter = DateTimeFormatter.ofLocalizedDate(FormatStyle.MEDIUM).withLocale(Locale("es", "ES"))
+
+    var showPeriodMenu by remember { mutableStateOf(false) }
+    var showCustomPickers by remember { mutableStateOf(false) }
+    var showStartPicker by remember { mutableStateOf(false) }
+    var showEndPicker by remember { mutableStateOf(false) }
+
+    val today = LocalDate.now(zone)
+    val isToday = range.start == range.end && range.start == today
+    val isThisMonth = range.start == YearMonth.from(today).atDay(1) && range.end == today
+    val isLast7 = range.start == today.minusDays(6) && range.end == today
+    val isLast30 = range.start == today.minusDays(29) && range.end == today
+    val periodLabel = when {
+        isToday -> "Hoy"
+        isThisMonth -> "Este mes"
+        isLast7 -> "7 días"
+        isLast30 -> "30 días"
+        else -> "Personalizado"
+    }
+    val rangeLabel = if (range.start == range.end) {
+        dateFormatter.format(range.start)
+    } else {
+        "${dateFormatter.format(range.start)} — ${dateFormatter.format(range.end)}"
+    }
+
+    if (showStartPicker) {
+        val state = rememberDatePickerState(
+            initialSelectedDateMillis = range.start.atStartOfDay(zone).toInstant().toEpochMilli()
+        )
+        DatePickerDialog(
+            onDismissRequest = { showStartPicker = false },
+            confirmButton = {
+                TextButton(onClick = {
+                    state.selectedDateMillis?.let {
+                        val newStart = java.time.Instant.ofEpochMilli(it).atZone(zone).toLocalDate()
+                        onCustomRange(newStart, range.end)
+                    }
+                    showStartPicker = false
+                }) { Text("Aceptar") }
+            },
+            dismissButton = { TextButton(onClick = { showStartPicker = false }) { Text("Cancelar") } }
+        ) { DatePicker(state = state) }
+    }
+
+    if (showEndPicker) {
+        val state = rememberDatePickerState(
+            initialSelectedDateMillis = range.end.atStartOfDay(zone).toInstant().toEpochMilli()
+        )
+        DatePickerDialog(
+            onDismissRequest = { showEndPicker = false },
+            confirmButton = {
+                TextButton(onClick = {
+                    state.selectedDateMillis?.let {
+                        val newEnd = java.time.Instant.ofEpochMilli(it).atZone(zone).toLocalDate()
+                        onCustomRange(range.start, newEnd)
+                    }
+                    showEndPicker = false
+                }) { Text("Aceptar") }
+            },
+            dismissButton = { TextButton(onClick = { showEndPicker = false }) { Text("Cancelar") } }
+        ) { DatePicker(state = state) }
+    }
 
     Column {
         Text(
@@ -138,45 +224,78 @@ private fun MonthFilterRow(
             fontWeight = FontWeight.Bold,
             color = colors.textLow
         )
-        LazyRow(
-            modifier = Modifier.padding(top = 8.dp),
-            horizontalArrangement = Arrangement.spacedBy(8.dp)
-        ) {
-            items(months, key = { it.toString() }) { month ->
-                val inRange = month >= selection.from && month <= selection.to
-                FilterChip(
-                    selected = inRange,
-                    onClick = {
-                        val anchor = rangeAnchor
-                        if (anchor != null && anchor != month) {
-                            onSelectRange(anchor, month)
-                            rangeAnchor = null
-                        } else {
-                            onSelect(month)
-                            rangeAnchor = month
-                        }
-                    },
-                    label = { Text(shortMonthLabel(month)) },
-                    colors = FilterChipDefaults.filterChipColors(
-                        selectedContainerColor = colors.tealDim
-                    )
+
+        Box(modifier = Modifier.fillMaxWidth().padding(top = 8.dp)) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.Center,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                IconButton(onClick = { onShift(false) }, modifier = Modifier.size(32.dp)) {
+                    Icon(Icons.Default.ChevronLeft, contentDescription = "Periodo anterior", modifier = Modifier.size(20.dp))
+                }
+                Text(
+                    rangeLabel,
+                    style = MaterialTheme.typography.bodySmall,
+                    fontWeight = FontWeight.Medium,
+                    color = colors.textHi,
+                    maxLines = 1,
+                    modifier = Modifier.padding(horizontal = 8.dp)
                 )
+                IconButton(onClick = { onShift(true) }, modifier = Modifier.size(32.dp)) {
+                    Icon(Icons.Default.ChevronRight, contentDescription = "Periodo siguiente", modifier = Modifier.size(20.dp))
+                }
+            }
+
+            Box(modifier = Modifier.align(Alignment.CenterEnd)) {
+                Row(
+                    modifier = Modifier
+                        .clip(RoundedCornerShape(50))
+                        .background(colors.accent.copy(alpha = 0.14f))
+                        .clickable { showPeriodMenu = true }
+                        .padding(horizontal = 12.dp, vertical = 6.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text(
+                        periodLabel,
+                        style = MaterialTheme.typography.labelSmall,
+                        fontWeight = FontWeight.SemiBold,
+                        color = colors.accent
+                    )
+                    Icon(
+                        Icons.Default.KeyboardArrowDown,
+                        contentDescription = null,
+                        tint = colors.accent,
+                        modifier = Modifier.padding(start = 2.dp).size(16.dp)
+                    )
+                }
+                DropdownMenu(expanded = showPeriodMenu, onDismissRequest = { showPeriodMenu = false }) {
+                    DropdownMenuItem(text = { Text("Hoy") }, onClick = { onToday(); showPeriodMenu = false })
+                    DropdownMenuItem(text = { Text("Este mes") }, onClick = { onThisMonth(); showPeriodMenu = false })
+                    DropdownMenuItem(text = { Text("7 días") }, onClick = { onLast7Days(); showPeriodMenu = false })
+                    DropdownMenuItem(text = { Text("30 días") }, onClick = { onLast30Days(); showPeriodMenu = false })
+                    DropdownMenuItem(text = { Text("Personalizado") }, onClick = {
+                        showPeriodMenu = false
+                        showCustomPickers = true
+                    })
+                }
             }
         }
-        Text(
-            when {
-                months.size <= 1 ->
-                    "Todavía solo hay datos de este mes — el historial guarda 6 meses. " +
-                        "Cuando pase un mes más podrás comparar entre ambos."
-                selection.isSingleMonth -> "Toca otro mes para comparar un rango"
-                else ->
-                    "Rango de ${shortMonthLabel(selection.from)} a " +
-                        "${shortMonthLabel(selection.to)} · toca un mes para volver a uno solo"
-            },
-            style = MaterialTheme.typography.labelSmall,
-            color = colors.textLow,
-            modifier = Modifier.padding(top = 6.dp)
-        )
+
+        if (showCustomPickers) {
+            Row(
+                modifier = Modifier.fillMaxWidth().padding(top = 8.dp),
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                OutlinedButton(onClick = { showStartPicker = true }, modifier = Modifier.weight(1f)) {
+                    Text(dateFormatter.format(range.start))
+                }
+                Text("—", modifier = Modifier.padding(top = 12.dp))
+                OutlinedButton(onClick = { showEndPicker = true }, modifier = Modifier.weight(1f)) {
+                    Text(dateFormatter.format(range.end))
+                }
+            }
+        }
     }
 }
 
@@ -188,10 +307,17 @@ private fun MonthFilterRow(
 private fun MonthSummaryCard(
     estimate: BillingEstimate,
     projectedCost: Double?,
-    projectedKwh: Double?
+    projectedKwh: Double?,
+    filter: BillingConsumptionFilter,
+    onFilterChange: (BillingConsumptionFilter) -> Unit
 ) {
     val colors = LocalFelicityColors.current
     val offGridPercent = (estimate.offGridShare * 100).toInt()
+    val filteredKwh = when (filter) {
+        BillingConsumptionFilter.TOTAL -> estimate.totalKwh
+        BillingConsumptionFilter.GRID -> estimate.gridKwh
+        BillingConsumptionFilter.BATTERY -> estimate.offGridKwh
+    }
 
     Card(
         colors = CardDefaults.cardColors(containerColor = colors.surface2),
@@ -200,18 +326,40 @@ private fun MonthSummaryCard(
         modifier = Modifier.fillMaxWidth()
     ) {
         Column(Modifier.padding(18.dp)) {
-            // Headline: el número que responde "¿cuánto llevo consumido?"
-            // sin tener que sumar nada — ya es el total del periodo elegido.
             Text(
-                "CONSUMO TOTAL · ${estimate.period.uppercase()}",
+                "CONSUMO · ${estimate.period.uppercase()}",
                 style = MaterialTheme.typography.labelSmall,
                 fontSize = 10.sp,
                 fontWeight = FontWeight.Bold,
                 color = colors.textLow
             )
-            Row(verticalAlignment = Alignment.Bottom, modifier = Modifier.padding(top = 6.dp)) {
+
+            // Mismo filtro que el Reporte de Consumo: elegir "Con corriente"
+            // aquí muestra exactamente el mismo número que ese reporte para
+            // el mismo rango de fechas.
+            SingleChoiceSegmentedButtonRow(modifier = Modifier.fillMaxWidth().padding(top = 10.dp)) {
+                SegmentedButton(
+                    selected = filter == BillingConsumptionFilter.TOTAL,
+                    onClick = { onFilterChange(BillingConsumptionFilter.TOTAL) },
+                    shape = SegmentedButtonDefaults.itemShape(index = 0, count = 3)
+                ) { Text("Total") }
+                SegmentedButton(
+                    selected = filter == BillingConsumptionFilter.GRID,
+                    onClick = { onFilterChange(BillingConsumptionFilter.GRID) },
+                    shape = SegmentedButtonDefaults.itemShape(index = 1, count = 3)
+                ) { Text("Con corriente") }
+                SegmentedButton(
+                    selected = filter == BillingConsumptionFilter.BATTERY,
+                    onClick = { onFilterChange(BillingConsumptionFilter.BATTERY) },
+                    shape = SegmentedButtonDefaults.itemShape(index = 2, count = 3)
+                ) { Text("Sin corriente") }
+            }
+
+            // Headline: el número que responde "¿cuánto llevo consumido?"
+            // según el filtro elegido arriba, sin tener que sumar nada.
+            Row(verticalAlignment = Alignment.Bottom, modifier = Modifier.padding(top = 14.dp)) {
                 Text(
-                    formatKwh(estimate.totalKwh),
+                    formatKwh(filteredKwh),
                     fontFamily = JetBrainsMonoFamily,
                     fontWeight = FontWeight.Bold,
                     fontSize = 36.sp,
@@ -222,6 +370,14 @@ private fun MonthSummaryCard(
                     style = MaterialTheme.typography.labelSmall,
                     color = colors.textLow,
                     modifier = Modifier.padding(start = 6.dp, bottom = 7.dp)
+                )
+            }
+            if (filter != BillingConsumptionFilter.TOTAL) {
+                Text(
+                    "de ${formatKwh(estimate.totalKwh)} kWh totales en el periodo",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = colors.textLow,
+                    modifier = Modifier.padding(top = 2.dp)
                 )
             }
 
@@ -671,11 +827,3 @@ private fun formatMoney(value: Double): String =
 
 private fun formatKwh(value: Double): String =
     String.format(Locale("es", "ES"), "%.1f", value)
-
-private fun shortMonthLabel(month: YearMonth): String {
-    val names = listOf(
-        "ene", "feb", "mar", "abr", "may", "jun",
-        "jul", "ago", "sep", "oct", "nov", "dic"
-    )
-    return "${names[month.monthValue - 1]} ${month.year % 100}"
-}

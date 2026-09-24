@@ -63,31 +63,21 @@ data class BillingEstimate(
 /**
  * Convierte el historial de lecturas en consumo facturable por día.
  *
- * Cómo se mide el consumo: se INTEGRA la potencia en el tiempo. Cada lectura
- * aporta (potencia media con la lectura anterior) x (tiempo entre ambas), que es
- * la regla del trapecio. No se puede usar `loadEnergyTodayKwh` del inversor
- * para esto, aunque exista: ese contador es el total del día y no distingue si
- * el consumo ocurrió con corriente o sin ella, que es justo la separación que
- * necesitamos.
- *
- * La atribución con/sin red se hace por lectura, usando gridPowerWatts: si el
- * inversor reportaba potencia de red en ese momento, ese consumo se pagó.
+ * La atribución con/sin red usa [ConsumptionSplitCalculator], la MISMA lógica
+ * que el Reporte de Consumo (delta del contador `loadEnergyTodayKwh` del
+ * inversor, no integración de potencia) — así un mismo rango de fechas
+ * siempre da el mismo número de "con corriente" en ambas pantallas.
  */
 object BillingEstimator {
-
-    /**
-     * Huecos mayores a esto no se integran. Sin este corte, un teléfono que
-     * estuvo 8 horas sin conexión generaría un tramo de 8 h a la potencia de la
-     * última lectura, inventando un consumo enorme que nunca ocurrió.
-     */
-    private const val MAX_GAP_MINUTES = 15L
 
     fun estimate(
         readings: List<PowerReadingEntity>,
         period: String,
         zone: ZoneId = ZoneId.systemDefault()
     ): BillingEstimate {
-        val daily = aggregateDaily(readings, zone)
+        val daily = ConsumptionSplitCalculator.splitByDay(readings, zone)
+            .toSortedMap()
+            .map { (day, split) -> DailyBilling(date = day, gridKwh = split.gridKwh, offGridKwh = split.batteryKwh) }
 
         val gridKwh = daily.sumOf { it.gridKwh }
         val offGridKwh = daily.sumOf { it.offGridKwh }
@@ -107,106 +97,44 @@ object BillingEstimator {
         )
     }
 
-    /** Integra la potencia en energía, agrupando por día natural. */
-    private fun aggregateDaily(
+    /** Filtra las lecturas de un rango de días naturales, ambos inclusive. */
+    fun filterByDateRange(
         readings: List<PowerReadingEntity>,
-        zone: ZoneId
-    ): List<DailyBilling> {
-        val usable = readings
-            .filter { it.loadPowerWatts != null }
-            .sortedBy { it.timestampEpochMillis }
-        if (usable.size < 2) return emptyList()
-
-        // Acumuladores por día: (kWh con red, kWh sin red).
-        val gridByDay = mutableMapOf<LocalDate, Double>()
-        val offGridByDay = mutableMapOf<LocalDate, Double>()
-
-        for (i in 1 until usable.size) {
-            val previous = usable[i - 1]
-            val current = usable[i]
-
-            val gapMillis = current.timestampEpochMillis - previous.timestampEpochMillis
-            if (gapMillis <= 0) continue
-            val gapMinutes = gapMillis / 60_000.0
-            if (gapMinutes > MAX_GAP_MINUTES) continue
-
-            val previousWatts = previous.loadPowerWatts ?: continue
-            val currentWatts = current.loadPowerWatts ?: continue
-            // Regla del trapecio: la potencia media del intervalo.
-            val averageWatts = (previousWatts + currentWatts) / 2.0
-            val kwh = averageWatts * (gapMinutes / 60.0) / 1000.0
-            if (kwh <= 0) continue
-
-            // ¿Había corriente durante este intervalo? Se toma el estado de la
-            // lectura de CIERRE: es la que confirma qué pasó en el tramo. Un
-            // gridPowerWatts null no se cuenta como "sin corriente" — puede ser
-            // un campo ausente, y asumirlo inflaría el ahorro.
-            val gridWatts = current.gridPowerWatts
-            val day = Instant.ofEpochMilli(current.timestampEpochMillis)
-                .atZone(zone)
-                .toLocalDate()
-
-            when {
-                gridWatts == null -> {
-                    // Sin dato de red: se atribuye al consumo con red, que es
-                    // el supuesto conservador (no infla el ahorro reportado).
-                    gridByDay[day] = (gridByDay[day] ?: 0.0) + kwh
-                }
-                gridWatts >= 1 -> gridByDay[day] = (gridByDay[day] ?: 0.0) + kwh
-                else -> offGridByDay[day] = (offGridByDay[day] ?: 0.0) + kwh
-            }
-        }
-
-        val days = (gridByDay.keys + offGridByDay.keys).sorted()
-        return days.map { day ->
-            DailyBilling(
-                date = day,
-                gridKwh = gridByDay[day] ?: 0.0,
-                offGridKwh = offGridByDay[day] ?: 0.0
-            )
-        }
-    }
-
-    /** Meses presentes en el historial, del más reciente al más antiguo. */
-    fun availableMonths(
-        readings: List<PowerReadingEntity>,
-        zone: ZoneId = ZoneId.systemDefault()
-    ): List<YearMonth> = readings
-        .asSequence()
-        .map { YearMonth.from(Instant.ofEpochMilli(it.timestampEpochMillis).atZone(zone)) }
-        .distinct()
-        .sortedDescending()
-        .toList()
-
-    /** Filtra las lecturas de un rango de meses, ambos inclusive. */
-    fun filterByMonths(
-        readings: List<PowerReadingEntity>,
-        from: YearMonth,
-        to: YearMonth,
+        start: LocalDate,
+        end: LocalDate,
         zone: ZoneId = ZoneId.systemDefault()
     ): List<PowerReadingEntity> {
-        val start = if (from <= to) from else to
-        val end = if (from <= to) to else from
-        return readings.filter {
-            val month = YearMonth.from(Instant.ofEpochMilli(it.timestampEpochMillis).atZone(zone))
-            month >= start && month <= end
-        }
+        val from = if (start <= end) start else end
+        val to = if (start <= end) end else start
+        val startMillis = from.atStartOfDay(zone).toInstant().toEpochMilli()
+        val endMillis = to.plusDays(1).atStartOfDay(zone).toInstant().toEpochMilli()
+        return readings.filter { it.timestampEpochMillis in startMillis until endMillis }
     }
+
+    /** Primer día con lecturas en el historial, o null si está vacío. */
+    fun earliestDate(
+        readings: List<PowerReadingEntity>,
+        zone: ZoneId = ZoneId.systemDefault()
+    ): LocalDate? = readings.minOfOrNull { Instant.ofEpochMilli(it.timestampEpochMillis).atZone(zone).toLocalDate() }
 
     /**
      * Proyección a fin de mes del consumo con red.
      *
-     * Solo aplica al mes en curso: extrapola el promedio diario observado a los
-     * días que faltan. Devuelve null si el periodo no es el mes actual o si no
-     * hay días suficientes para promediar — con un solo día de datos la
-     * proyección sería pura invención.
+     * Solo aplica cuando el rango elegido es "del 1 al día de hoy" del mes en
+     * curso: extrapola el promedio diario observado a los días que faltan.
+     * Devuelve null fuera de ese caso o si no hay días suficientes para
+     * promediar — con un solo día de datos la proyección sería pura invención.
      */
     fun projectMonthEnd(
         estimate: BillingEstimate,
-        month: YearMonth,
+        rangeStart: LocalDate,
+        rangeEnd: LocalDate,
         today: LocalDate = LocalDate.now()
     ): Double? {
-        if (month != YearMonth.from(today)) return null
+        val month = YearMonth.from(today)
+        if (rangeEnd != today) return null
+        if (rangeStart != month.atDay(1)) return null
+
         val daysWithData = estimate.daily.count { it.gridKwh > 0 }
         if (daysWithData < 2) return null
 

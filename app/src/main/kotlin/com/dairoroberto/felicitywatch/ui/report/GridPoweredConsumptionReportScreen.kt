@@ -35,18 +35,17 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.dairoroberto.felicitywatch.data.local.PowerReadingEntity
+import com.dairoroberto.felicitywatch.domain.usecase.ConsumptionSplit
+import com.dairoroberto.felicitywatch.ui.components.DayTrendChart
+import com.dairoroberto.felicitywatch.ui.components.TrendPoint
 import java.time.Instant
 import java.time.ZoneId
 import java.time.format.DateTimeFormatter
 import java.util.Locale
 import kotlin.math.round
+import kotlin.math.roundToInt
 
 private enum class ConsumptionFilter { TOTAL, GRID, BATTERY }
-
-/** Consumo de una franja horaria, separado por fuente (red vs batería). */
-private data class ConsumptionSplit(val gridKwh: Double, val batteryKwh: Double) {
-    val totalKwh: Double get() = gridKwh + batteryKwh
-}
 
 private val HOUR_MILLIS = 60 * 60 * 1000L
 
@@ -157,6 +156,81 @@ internal fun GridPoweredConsumptionCard(
                         textColor = colors.textMid,
                         modifier = Modifier.padding(start = 16.dp)
                     )
+                }
+            }
+
+            // Evolución en VATIOS, la misma gráfica que el modal del card de
+            // Consumo en el Panel. Complementa las barras de abajo en lugar de
+            // repetirlas: aquellas son energía ACUMULADA por hora (kWh, "cuánto
+            // gasté"), esta es la potencia INSTANTÁNEA a lo largo del día
+            // ("cuándo se disparó el consumo"). Un pico corto de 3kW se ve aquí
+            // como un pico, mientras que diluido en el kWh de su hora pasa
+            // desapercibido.
+            //
+            // Solo con UN día seleccionado: el eje X es la hora del día (0-23),
+            // así que con un rango de varios días los puntos de cada día se
+            // superpondrían sobre las mismas horas, dibujando un garabato sin
+            // significado. Para varios días el detalle por hora de abajo ya
+            // responde la pregunta.
+            if (dateRange.start == dateRange.end) {
+                val trendPoints = remember(readings, dateRange) {
+                    readings
+                        .asSequence()
+                        .filter { it.loadPowerWatts != null }
+                        .map { reading ->
+                            val time = Instant.ofEpochMilli(reading.timestampEpochMillis).atZone(zone)
+                            TrendPoint(
+                                hourOfDay = time.hour + time.minute / 60f + time.second / 3600f,
+                                value = reading.loadPowerWatts!!.toFloat()
+                            )
+                        }
+                        .sortedBy { it.hourOfDay }
+                        .toList()
+                }
+
+                if (trendPoints.size >= 2) {
+                    HorizontalDivider(modifier = Modifier.padding(vertical = 16.dp), color = colors.hairline)
+
+                    Text(
+                        "EVOLUCIÓN DEL DÍA",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = colors.textLow
+                    )
+                    Text(
+                        "Potencia instantánea en vatios. Toca o arrastra sobre la gráfica para ver el valor de cada momento.",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = colors.textLow,
+                        modifier = Modifier.padding(top = 2.dp, bottom = 10.dp)
+                    )
+
+                    DayTrendChart(
+                        points = trendPoints,
+                        lineColor = colors.accent,
+                        gridColor = colors.hairline,
+                        labelColor = colors.textMid,
+                        tooltipBackground = colors.surface2,
+                        surfaceColor = colors.surface2,
+                        unit = "W",
+                        modifier = Modifier.fillMaxWidth()
+                    )
+
+                    val values = trendPoints.map { it.value }
+                    Row(modifier = Modifier.fillMaxWidth().padding(top = 12.dp), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                        GenerationStatTile(
+                            label = "Pico del día",
+                            value = values.max().roundToInt().toString(),
+                            unit = "W",
+                            color = colors.accent,
+                            modifier = Modifier.weight(1f)
+                        )
+                        GenerationStatTile(
+                            label = "Promedio del día",
+                            value = values.average().roundToInt().toString(),
+                            unit = "W",
+                            color = colors.accent,
+                            modifier = Modifier.weight(1f)
+                        )
+                    }
                 }
             }
 
@@ -327,11 +401,10 @@ private data class HourSlot(val x: Float, val split: ConsumptionSplit) {
  * diferencia de una agregación por hora-del-día, cada slot corresponde a un
  * momento único del calendario, con su propio día. Slots sin lecturas se
  * completan en cero para que la lista cubra el periodo completo sin
- * huecos. La fuente (red vs batería) se decide por gridPowerWatts en la
- * lectura de INICIO del intervalo, igual que el resto de tramos de
- * corriente en la app. Un delta negativo entre dos lecturas consecutivas
- * (cruce de medianoche, el contador del inversor se reinicia a 0) se
- * descarta en vez de restar energía inexistente.
+ * huecos. Delega la atribución con/sin corriente en
+ * [com.dairoroberto.felicitywatch.domain.usecase.ConsumptionSplitCalculator],
+ * la misma que usa Factura y ahorro, para que el mismo rango de fechas
+ * siempre dé el mismo número en ambas pantallas.
  */
 private fun computeConsumptionByHourSlot(
     readings: List<PowerReadingEntity>,
@@ -339,29 +412,12 @@ private fun computeConsumptionByHourSlot(
     endOfDay: Long,
     zone: ZoneId
 ): List<HourSlot> {
-    val sorted = readings
-        .filter { it.loadEnergyTodayKwh != null && it.gridPowerWatts != null }
-        .sortedBy { it.timestampEpochMillis }
+    val splitBySlot = com.dairoroberto.felicitywatch.domain.usecase.ConsumptionSplitCalculator
+        .splitByHour(readings, zone)
 
     fun slotStart(epochMillis: Long): Long {
         val zoned = Instant.ofEpochMilli(epochMillis).atZone(zone)
         return zoned.withMinute(0).withSecond(0).withNano(0).toInstant().toEpochMilli()
-    }
-
-    val gridResult = mutableMapOf<Long, Double>()
-    val batteryResult = mutableMapOf<Long, Double>()
-    for (i in 0 until sorted.size - 1) {
-        val current = sorted[i]
-        val next = sorted[i + 1]
-        val delta = next.loadEnergyTodayKwh!! - current.loadEnergyTodayKwh!!
-        if (delta <= 0) continue
-        val online = (current.gridPowerWatts ?: 0) >= 1
-        val slot = slotStart(current.timestampEpochMillis)
-        if (online) {
-            gridResult[slot] = (gridResult[slot] ?: 0.0) + delta
-        } else {
-            batteryResult[slot] = (batteryResult[slot] ?: 0.0) + delta
-        }
     }
 
     val firstSlot = slotStart(startOfDay)
@@ -371,7 +427,7 @@ private fun computeConsumptionByHourSlot(
     return slots.map { slot ->
         HourSlot(
             x = (slot - startOfDay).toFloat(),
-            split = ConsumptionSplit(gridKwh = gridResult[slot] ?: 0.0, batteryKwh = batteryResult[slot] ?: 0.0)
+            split = splitBySlot[slot] ?: ConsumptionSplit(0.0, 0.0)
         )
     }
 }
