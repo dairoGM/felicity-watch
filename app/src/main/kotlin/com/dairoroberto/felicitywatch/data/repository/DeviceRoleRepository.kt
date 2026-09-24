@@ -177,9 +177,12 @@ class DeviceRoleRepository @Inject constructor(
 
     /**
      * Revalida el estado de aprobación de ESTE dispositivo contra Supabase —
-     * detecta una revocación hecha por la master desde otro momento. Nunca
-     * bloquea a un cliente ya aprobado por un simple fallo de red: distingue
-     * "revocado de verdad" de "no se pudo confirmar ahora mismo".
+     * detecta una revocación hecha por la master desde otro momento, o que
+     * este dispositivo fue registrado como master directamente en Supabase
+     * (ej. de forma manual, sin pasar por el switch de Ajustes) — en ese
+     * caso sincroniza también el flag local [AppPreferences.isMasterDevice].
+     * Nunca bloquea a un cliente ya aprobado por un simple fallo de red:
+     * distingue "revocado de verdad" de "no se pudo confirmar ahora mismo".
      */
     suspend fun checkOwnApprovalStatus(): ApprovalStatus {
         val deviceId = appPreferences.supabaseDeviceId()
@@ -191,6 +194,10 @@ class DeviceRoleRepository @Inject constructor(
         if (!response.isSuccessful) return ApprovalStatus.Unknown
 
         val row = response.body()?.firstOrNull() ?: return ApprovalStatus.PendingOrRevoked
+        if (row.role == "master" && !row.revoked) {
+            appPreferences.setIsMasterDevice(true)
+            return ApprovalStatus.Approved
+        }
         return if (!row.revoked && row.approvedAt != null) ApprovalStatus.Approved else ApprovalStatus.PendingOrRevoked
     }
 
