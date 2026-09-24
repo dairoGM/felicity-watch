@@ -4,10 +4,14 @@ import com.dairoroberto.felicitywatch.data.local.AppPreferences
 import com.dairoroberto.felicitywatch.data.local.PowerReadingDao
 import com.dairoroberto.felicitywatch.data.local.PowerReadingEntity
 import com.dairoroberto.felicitywatch.data.remote.SupabaseApiService
+import com.dairoroberto.felicitywatch.data.remote.dto.DesktopPairingDto
 import com.dairoroberto.felicitywatch.data.remote.dto.SupabasePowerReadingDto
 import kotlinx.coroutines.flow.first
+import java.time.Instant
+import java.time.format.DateTimeFormatter
 import javax.inject.Inject
 import javax.inject.Singleton
+import kotlin.random.Random
 
 /** La tabla de Supabase respondió con un error (ej. `relation "power_readings" does not exist`
  * si aún no se corrió el script de instalación, o RLS rechazando la escritura). */
@@ -92,6 +96,34 @@ class SupabaseSyncRepository @Inject constructor(
 
     suspend fun isMigrationDone(): Boolean = appPreferences.supabaseMigrationDone.first()
 
+    /**
+     * Genera un PIN de 6 dígitos para emparejar la app de escritorio con
+     * este dispositivo, sin exponer credenciales de FSolar ni el device_id
+     * en crudo: la PC solo necesita teclear este código una vez. Expira a
+     * los [PAIRING_TTL_MINUTES] minutos y es de un solo uso (la app de
+     * escritorio lo marca `used=true` al validar).
+     */
+    suspend fun createDesktopPairingPin(): String {
+        val deviceId = appPreferences.supabaseDeviceId()
+        val pin = Random.nextInt(0, 1_000_000).toString().padStart(6, '0')
+        val expiresAt = Instant.now().plusSeconds(PAIRING_TTL_MINUTES * 60)
+
+        val response = api.createDesktopPairing(
+            prefer = "return=minimal",
+            pairing = listOf(
+                DesktopPairingDto(
+                    pin = pin,
+                    deviceId = deviceId,
+                    expiresAt = DateTimeFormatter.ISO_INSTANT.format(expiresAt)
+                )
+            )
+        )
+        if (!response.isSuccessful) {
+            throw SupabaseSyncException(response.code(), response.errorBody()?.string())
+        }
+        return pin
+    }
+
     private fun PowerReadingEntity.toDto(deviceId: String) = SupabasePowerReadingDto(
         deviceId = deviceId,
         timestampEpochMillis = timestampEpochMillis,
@@ -123,5 +155,10 @@ class SupabaseSyncRepository @Inject constructor(
          * contra qué columnas puede haber conflicto — deben ser exactamente
          * las del UNIQUE de la tabla (ver supabase_bootstrap.sql). */
         private const val INSERT_ON_CONFLICT = "device_id,timestamp_epoch_millis"
+
+        /** Tiempo de vida de un PIN de emparejamiento con la app de
+         * escritorio — corto a propósito: es solo para el momento de
+         * conectar, no una credencial de largo plazo. */
+        private const val PAIRING_TTL_MINUTES = 15L
     }
 }

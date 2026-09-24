@@ -74,6 +74,7 @@ import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import com.dairoroberto.felicitywatch.data.local.AppPreferences
@@ -890,6 +891,67 @@ private fun LazyListScope.systemTab(
                     style = MaterialTheme.typography.labelSmall,
                     color = colors.textLow,
                     modifier = Modifier.padding(top = 4.dp)
+                )
+            }
+        }
+    }
+
+    item {
+        val colors = LocalFelicityColors.current
+        val migrationDone by viewModel.supabaseMigrationDone.collectAsState()
+        val pin by viewModel.pairingPin.collectAsState()
+        val generating by viewModel.isGeneratingPairingPin.collectAsState()
+
+        SectionCard(title = "App de escritorio") {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Icon(Icons.Default.CloudSync, contentDescription = null, tint = colors.accent)
+                Text(
+                    "Genera un PIN de un solo uso para conectar la app de escritorio a tu historial " +
+                        "en la nube. Válido por 15 minutos.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = colors.textMid,
+                    modifier = Modifier.padding(start = 8.dp)
+                )
+            }
+
+            if (!migrationDone) {
+                Text(
+                    "Primero migra tu historial a la nube (arriba) — sin eso la app de escritorio " +
+                        "no tendría nada que mostrar.",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = colors.textLow,
+                    modifier = Modifier.padding(top = SECTION_CONTENT_SPACING)
+                )
+            } else if (pin != null) {
+                Text(
+                    pin!!,
+                    style = MaterialTheme.typography.displaySmall,
+                    fontFamily = com.dairoroberto.felicitywatch.ui.theme.JetBrainsMonoFamily,
+                    fontWeight = FontWeight.Bold,
+                    color = colors.accent,
+                    textAlign = TextAlign.Center,
+                    modifier = Modifier.fillMaxWidth().padding(top = SECTION_CONTENT_SPACING)
+                )
+                Text(
+                    "Escribe este código en la app de escritorio. Expira en 15 minutos o al usarlo una vez.",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = colors.textLow,
+                    textAlign = TextAlign.Center,
+                    modifier = Modifier.fillMaxWidth().padding(top = 4.dp)
+                )
+                ActionButton(
+                    text = "Generar otro PIN",
+                    outlined = true,
+                    onClick = { viewModel.generateDesktopPairingPin() },
+                    modifier = Modifier.padding(top = SECTION_CONTENT_SPACING)
+                )
+            } else {
+                ActionButton(
+                    text = "Generar PIN para escritorio",
+                    icon = Icons.Default.CloudSync,
+                    loading = generating,
+                    onClick = { viewModel.generateDesktopPairingPin() },
+                    modifier = Modifier.padding(top = SECTION_CONTENT_SPACING)
                 )
             }
         }

@@ -1,5 +1,6 @@
 package com.dairoroberto.felicitywatch.data.remote
 
+import com.dairoroberto.felicitywatch.data.remote.dto.DesktopPairingDto
 import com.dairoroberto.felicitywatch.data.remote.dto.SupabasePowerReadingDto
 import retrofit2.Response
 import retrofit2.http.Body
@@ -31,5 +32,12 @@ interface SupabaseApiService {
         @Query("on_conflict") onConflict: String,
         @Header("Prefer") prefer: String,
         @Body readings: List<SupabasePowerReadingDto>
+    ): Response<Unit>
+
+    /** Genera un PIN de emparejamiento — llamada desde el celular (Ajustes > Sincronización). */
+    @POST("rest/v1/desktop_pairings")
+    suspend fun createDesktopPairing(
+        @Header("Prefer") prefer: String,
+        @Body pairing: List<DesktopPairingDto>
     ): Response<Unit>
 }

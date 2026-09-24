@@ -346,6 +346,32 @@ class SettingsViewModel @Inject constructor(
         }
     }
 
+    private val _isGeneratingPairingPin = MutableStateFlow(false)
+    val isGeneratingPairingPin: StateFlow<Boolean> = _isGeneratingPairingPin
+
+    private val _pairingPin = MutableStateFlow<String?>(null)
+    /** PIN de 6 dígitos vigente para emparejar la app de escritorio, o null si no hay uno activo. */
+    val pairingPin: StateFlow<String?> = _pairingPin
+
+    fun generateDesktopPairingPin() {
+        if (_isGeneratingPairingPin.value) return
+        viewModelScope.launch {
+            _isGeneratingPairingPin.value = true
+            try {
+                _pairingPin.value = supabaseSyncRepository.createDesktopPairingPin()
+            } catch (e: Exception) {
+                _pairingPin.value = null
+                emit("No se pudo generar el PIN: ${describeMonitoringError(e)}")
+            } finally {
+                _isGeneratingPairingPin.value = false
+            }
+        }
+    }
+
+    fun clearPairingPin() {
+        _pairingPin.value = null
+    }
+
     /** Diagnóstico sin USB: copia la última respuesta cruda de Felicity para pegarla donde haga falta. */
     fun copyRawJsonToClipboard(label: String, json: String?) {
         if (json.isNullOrBlank()) {
