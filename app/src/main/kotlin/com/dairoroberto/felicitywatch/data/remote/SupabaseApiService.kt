@@ -1,10 +1,14 @@
 package com.dairoroberto.felicitywatch.data.remote
 
+import com.dairoroberto.felicitywatch.data.remote.dto.AccountDeviceDto
+import com.dairoroberto.felicitywatch.data.remote.dto.AccountDeviceStatusDto
 import com.dairoroberto.felicitywatch.data.remote.dto.DesktopPairingDto
 import com.dairoroberto.felicitywatch.data.remote.dto.SupabasePowerReadingDto
 import retrofit2.Response
 import retrofit2.http.Body
+import retrofit2.http.GET
 import retrofit2.http.Header
+import retrofit2.http.PATCH
 import retrofit2.http.POST
 import retrofit2.http.Query
 
@@ -39,5 +43,51 @@ interface SupabaseApiService {
     suspend fun createDesktopPairing(
         @Header("Prefer") prefer: String,
         @Body pairing: List<DesktopPairingDto>
+    ): Response<Unit>
+
+    /** Busca un PIN vigente y no usado, filtrado además por a qué plataforma va dirigido. */
+    @GET("rest/v1/desktop_pairings")
+    suspend fun findPairing(
+        @Query("pin") pinFilter: String,
+        @Query("used") usedFilter: String,
+        @Query("target_platform") targetPlatformFilter: String,
+        @Query("select") select: String
+    ): Response<List<Map<String, Any?>>>
+
+    /** Marca un PIN como usado (de un solo uso). */
+    @PATCH("rest/v1/desktop_pairings")
+    suspend fun markPairingUsed(
+        @Query("pin") pinFilter: String,
+        @Header("Prefer") prefer: String,
+        @Body body: Map<String, Boolean>
+    ): Response<Unit>
+
+    /**
+     * Intenta registrar este dispositivo como master. El índice único parcial
+     * de la tabla (un solo `role='master', revoked=false` por cuenta) hace
+     * que un segundo intento falle con 409 — la app nunca decide sola quién
+     * gana, lo decide Postgres.
+     */
+    @POST("rest/v1/account_devices")
+    suspend fun createAccountDevice(
+        @Query("on_conflict") onConflict: String,
+        @Header("Prefer") prefer: String,
+        @Body device: List<AccountDeviceDto>
+    ): Response<Unit>
+
+    /** Estado actual (rol, aprobación, revocación) de cualquier device_id, o de la master de la cuenta. */
+    @GET("rest/v1/account_devices")
+    suspend fun getAccountDevices(
+        @Query("select") select: String = "*",
+        @Query("device_id") deviceIdFilter: String? = null,
+        @Query("role") roleFilter: String? = null,
+        @Query("revoked") revokedFilter: String? = null
+    ): Response<List<AccountDeviceStatusDto>>
+
+    @PATCH("rest/v1/account_devices")
+    suspend fun updateAccountDevice(
+        @Query("device_id") deviceIdFilter: String,
+        @Header("Prefer") prefer: String,
+        @Body updates: Map<String, @JvmSuppressWildcards Any?>
     ): Response<Unit>
 }

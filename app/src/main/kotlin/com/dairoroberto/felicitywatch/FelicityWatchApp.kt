@@ -5,6 +5,8 @@ import androidx.hilt.work.HiltWorkerFactory
 import androidx.work.Configuration
 import com.dairoroberto.felicitywatch.data.local.CredentialsStore
 import com.dairoroberto.felicitywatch.data.repository.AlertRuleRepository
+import com.dairoroberto.felicitywatch.domain.usecase.DeviceAccessDecision
+import com.dairoroberto.felicitywatch.domain.usecase.EvaluateDeviceApprovalUseCase
 import com.dairoroberto.felicitywatch.notification.NotificationChannels
 import com.dairoroberto.felicitywatch.service.MonitoringServiceController
 import com.dairoroberto.felicitywatch.service.ServiceWatchdogWorker
@@ -20,6 +22,7 @@ class FelicityWatchApp : Application(), Configuration.Provider {
     @Inject lateinit var workerFactory: HiltWorkerFactory
     @Inject lateinit var credentialsStore: CredentialsStore
     @Inject lateinit var alertRuleRepository: AlertRuleRepository
+    @Inject lateinit var evaluateDeviceApprovalUseCase: EvaluateDeviceApprovalUseCase
 
     override fun onCreate() {
         super.onCreate()
@@ -33,7 +36,17 @@ class FelicityWatchApp : Application(), Configuration.Provider {
         // para que el respaldo esté activo sin depender de un reinicio.
         ServiceWatchdogWorker.schedule(this)
         if (credentialsStore.hasFsolarCredentials()) {
-            MonitoringServiceController.start(this)
+            // El servicio de monitoreo solo arranca si este dispositivo es
+            // la master, o si es un cliente con aprobación vigente — un
+            // cliente sin aprobar puede tener credenciales de FSolar
+            // perfectamente válidas y aun así no debe consultar Felicity ni
+            // usar la app (guía: modelo master/cliente).
+            CoroutineScope(Dispatchers.IO).launch {
+                when (evaluateDeviceApprovalUseCase.evaluate()) {
+                    DeviceAccessDecision.Allowed -> MonitoringServiceController.start(this@FelicityWatchApp)
+                    DeviceAccessDecision.Blocked -> Unit
+                }
+            }
         }
 
         // Antes esto solo corría al abrir Ajustes > Alertas (AlertsViewModel)

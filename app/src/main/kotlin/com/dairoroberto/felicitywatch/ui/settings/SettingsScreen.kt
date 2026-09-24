@@ -11,7 +11,9 @@ import android.provider.Settings
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.core.content.ContextCompat
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.FlowRow
@@ -45,6 +47,7 @@ import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.FilterChipDefaults
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
@@ -76,6 +79,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import androidx.hilt.navigation.compose.hiltViewModel
 import com.dairoroberto.felicitywatch.data.local.AppPreferences
 import com.dairoroberto.felicitywatch.data.repository.MigrationProgress
@@ -823,6 +827,9 @@ private fun LazyListScope.systemTab(
 
     item {
         val colors = LocalFelicityColors.current
+        val isMaster by viewModel.isMasterDevice.collectAsState()
+        if (!isMaster) return@item
+
         val migrationDone by viewModel.supabaseMigrationDone.collectAsState()
         val syncEnabled by viewModel.supabaseSyncEnabled.collectAsState()
         val progress by viewModel.migrationProgress.collectAsState()
@@ -898,6 +905,145 @@ private fun LazyListScope.systemTab(
 
     item {
         val colors = LocalFelicityColors.current
+        val isMaster by viewModel.isMasterDevice.collectAsState()
+        val masterInfo by viewModel.currentMasterInfo.collectAsState()
+        val claiming by viewModel.isClaimingMaster.collectAsState()
+
+        SectionCard(title = "Rol de este dispositivo") {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Icon(Icons.Default.CloudSync, contentDescription = null, tint = colors.accent)
+                Text(
+                    "Solo un dispositivo es el \"principal\": el único que consulta Felicity y " +
+                        "sincroniza a la nube. Los demás requieren su aprobación para funcionar.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = colors.textMid,
+                    modifier = Modifier.padding(start = 8.dp)
+                )
+            }
+
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                modifier = Modifier.fillMaxWidth().padding(top = SECTION_CONTENT_SPACING)
+            ) {
+                Text(
+                    if (isMaster) "Este dispositivo es el principal" else "Marcar como principal",
+                    style = MaterialTheme.typography.bodyMedium,
+                    fontWeight = FontWeight.Medium,
+                    color = if (isMaster) colors.green else colors.textHi,
+                    modifier = Modifier.weight(1f)
+                )
+                Switch(
+                    checked = isMaster,
+                    enabled = !isMaster,
+                    onCheckedChange = { if (it) viewModel.claimMasterRole() }
+                )
+            }
+
+            if (claiming) {
+                LinearProgressIndicator(modifier = Modifier.fillMaxWidth().padding(top = 8.dp))
+            }
+
+            if (!isMaster && masterInfo != null) {
+                Text(
+                    "Dispositivo principal actual: ${masterInfo?.displayName ?: masterInfo?.deviceId?.take(8)}",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = colors.textLow,
+                    modifier = Modifier.padding(top = 6.dp)
+                )
+            }
+        }
+    }
+
+    item {
+        val colors = LocalFelicityColors.current
+        val isMaster by viewModel.isMasterDevice.collectAsState()
+        if (!isMaster) return@item
+
+        val devices by viewModel.accountDevices.collectAsState()
+        val loadingDevices by viewModel.isLoadingDevices.collectAsState()
+        val generatingClientPin by viewModel.isGeneratingClientPin.collectAsState()
+        val clientPin by viewModel.clientPairingPin.collectAsState()
+
+        LaunchedEffect(Unit) { viewModel.loadAccountDevices() }
+
+        SectionCard(title = "Dispositivos") {
+            Text(
+                "Otros teléfonos con esta cuenta necesitan un código de acceso para funcionar. " +
+                    "Genera uno y compártelo con ese dispositivo.",
+                style = MaterialTheme.typography.bodySmall,
+                color = colors.textMid
+            )
+
+            if (clientPin != null) {
+                Text(
+                    clientPin!!,
+                    style = MaterialTheme.typography.displaySmall,
+                    fontFamily = com.dairoroberto.felicitywatch.ui.theme.JetBrainsMonoFamily,
+                    fontWeight = FontWeight.Bold,
+                    color = colors.accent,
+                    textAlign = TextAlign.Center,
+                    modifier = Modifier.fillMaxWidth().padding(top = SECTION_CONTENT_SPACING)
+                )
+                Text(
+                    "Escribe este código en el otro teléfono. Expira en 15 minutos o al usarlo una vez.",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = colors.textLow,
+                    textAlign = TextAlign.Center,
+                    modifier = Modifier.fillMaxWidth().padding(top = 4.dp)
+                )
+                ActionButton(
+                    text = "Generar otro código",
+                    outlined = true,
+                    onClick = { viewModel.generateClientPairingPin() },
+                    modifier = Modifier.padding(top = SECTION_CONTENT_SPACING)
+                )
+            } else {
+                ActionButton(
+                    text = "Generar código para un celular",
+                    icon = Icons.Default.CloudSync,
+                    loading = generatingClientPin,
+                    onClick = { viewModel.generateClientPairingPin() },
+                    modifier = Modifier.padding(top = SECTION_CONTENT_SPACING)
+                )
+            }
+
+            HorizontalDivider(modifier = Modifier.padding(vertical = 16.dp), color = colors.hairline)
+
+            Text(
+                "DISPOSITIVOS REGISTRADOS",
+                style = MaterialTheme.typography.labelSmall,
+                fontSize = 10.sp,
+                fontWeight = FontWeight.Bold,
+                color = colors.textLow
+            )
+
+            if (loadingDevices) {
+                LinearProgressIndicator(modifier = Modifier.fillMaxWidth().padding(top = 8.dp))
+            } else if (devices.isEmpty()) {
+                Text(
+                    "Todavía no hay otros dispositivos registrados.",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = colors.textLow,
+                    modifier = Modifier.padding(top = 8.dp)
+                )
+            } else {
+                devices.forEach { device ->
+                    AccountDeviceRow(
+                        device = device,
+                        colors = colors,
+                        onRename = { name -> viewModel.renameDevice(device.deviceId, name) },
+                        onRevoke = { viewModel.revokeDevice(device.deviceId) }
+                    )
+                }
+            }
+        }
+    }
+
+    item {
+        val colors = LocalFelicityColors.current
+        val isMaster by viewModel.isMasterDevice.collectAsState()
+        if (!isMaster) return@item
+
         val migrationDone by viewModel.supabaseMigrationDone.collectAsState()
         val pin by viewModel.pairingPin.collectAsState()
         val generating by viewModel.isGeneratingPairingPin.collectAsState()
@@ -1099,6 +1245,80 @@ private fun ChannelTestRow(icon: ImageVector, label: String, onTest: () -> Unit)
         TextButton(onClick = onTest, modifier = Modifier.height(ACTION_BUTTON_HEIGHT)) {
             Icon(Icons.Default.Refresh, contentDescription = null, modifier = Modifier.padding(end = 4.dp))
             Text("Probar")
+        }
+    }
+}
+
+@Composable
+private fun AccountDeviceRow(
+    device: com.dairoroberto.felicitywatch.data.repository.AccountDeviceInfo,
+    colors: com.dairoroberto.felicitywatch.ui.theme.FelicitySemanticColors,
+    onRename: (String) -> Unit,
+    onRevoke: () -> Unit
+) {
+    var editingName by remember(device.deviceId) { mutableStateOf(false) }
+    var nameInput by remember(device.deviceId) { mutableStateOf(device.displayName ?: "") }
+    var showRevokeConfirm by remember { mutableStateOf(false) }
+
+    if (showRevokeConfirm) {
+        AlertDialog(
+            onDismissRequest = { showRevokeConfirm = false },
+            title = { Text("¿Revocar este dispositivo?") },
+            text = { Text("Dejará de poder monitorear hasta que generes un código nuevo para él.") },
+            confirmButton = {
+                TextButton(onClick = { showRevokeConfirm = false; onRevoke() }) { Text("Revocar") }
+            },
+            dismissButton = {
+                TextButton(onClick = { showRevokeConfirm = false }) { Text("Cancelar") }
+            }
+        )
+    }
+
+    Column(Modifier.fillMaxWidth().padding(vertical = 10.dp)) {
+        Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
+            Box(
+                Modifier
+                    .size(8.dp)
+                    .background(if (device.revoked) colors.error else colors.green, androidx.compose.foundation.shape.CircleShape)
+            )
+            Column(Modifier.padding(start = 10.dp).weight(1f)) {
+                if (editingName) {
+                    OutlinedTextField(
+                        value = nameInput,
+                        onValueChange = { nameInput = it },
+                        singleLine = true,
+                        label = { Text("Nombre") },
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                } else {
+                    Text(
+                        device.displayName ?: "Dispositivo ${device.deviceId.take(8)}",
+                        style = MaterialTheme.typography.bodyMedium,
+                        fontWeight = FontWeight.Medium,
+                        color = colors.textHi
+                    )
+                    Text(
+                        "${if (device.role == "master") "Principal" else "Cliente"}" +
+                            (if (device.revoked) " · Revocado" else "") +
+                            (device.lastSeenAt?.let { " · Visto ${it.toString().take(16).replace('T', ' ')}" } ?: ""),
+                        style = MaterialTheme.typography.labelSmall,
+                        color = colors.textLow
+                    )
+                }
+            }
+            if (editingName) {
+                TextButton(onClick = {
+                    editingName = false
+                    onRename(nameInput)
+                }) { Text("Guardar") }
+            } else {
+                TextButton(onClick = { editingName = true }) { Text("Renombrar") }
+                if (device.role != "master" && !device.revoked) {
+                    TextButton(onClick = { showRevokeConfirm = true }) {
+                        Text("Revocar", color = colors.error)
+                    }
+                }
+            }
         }
     }
 }

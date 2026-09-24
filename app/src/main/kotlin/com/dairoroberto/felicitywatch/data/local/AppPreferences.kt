@@ -156,6 +156,26 @@ class AppPreferences @Inject constructor(@ApplicationContext private val context
         context.dataStore.edit { it[KEY_SUPABASE_SYNC_ENABLED] = enabled }
     }
 
+    /** true si ESTE dispositivo ganó el rol de master (registrado en
+     * account_devices de Supabase). Cache local para no depender de la red
+     * en cada arranque — la fuente de verdad sigue siendo Supabase. */
+    val isMasterDevice: Flow<Boolean> = context.dataStore.data
+        .map { it[KEY_IS_MASTER_DEVICE] ?: false }
+
+    suspend fun setIsMasterDevice(isMaster: Boolean) {
+        context.dataStore.edit { it[KEY_IS_MASTER_DEVICE] = isMaster }
+    }
+
+    /** true si este dispositivo cliente ya fue aprobado por la master (canjeó
+     * un PIN válido). Se revalida periódicamente contra Supabase por si la
+     * master lo revoca — ver EvaluateDeviceApprovalUseCase. */
+    val clientApprovalConfirmed: Flow<Boolean> = context.dataStore.data
+        .map { it[KEY_CLIENT_APPROVAL_CONFIRMED] ?: false }
+
+    suspend fun setClientApprovalConfirmed(confirmed: Boolean) {
+        context.dataStore.edit { it[KEY_CLIENT_APPROVAL_CONFIRMED] = confirmed }
+    }
+
     companion object {
         private val KEY_LAST_READING_MILLIS = longPreferencesKey("last_reading_epoch_millis")
         private val KEY_LAST_GRID_STATE = stringPreferencesKey("last_grid_state")
@@ -214,6 +234,8 @@ class AppPreferences @Inject constructor(@ApplicationContext private val context
         private val KEY_SUPABASE_DEVICE_ID = stringPreferencesKey("supabase_device_id")
         private val KEY_SUPABASE_MIGRATION_DONE = booleanPreferencesKey("supabase_migration_done")
         private val KEY_SUPABASE_SYNC_ENABLED = booleanPreferencesKey("supabase_sync_enabled")
+        private val KEY_IS_MASTER_DEVICE = booleanPreferencesKey("is_master_device")
+        private val KEY_CLIENT_APPROVAL_CONFIRMED = booleanPreferencesKey("client_approval_confirmed")
 
         private val KEY_PV_ALERT_WINDOW_START_HOUR = intPreferencesKey("pv_alert_window_start_hour")
         private val KEY_PV_ALERT_WINDOW_END_HOUR = intPreferencesKey("pv_alert_window_end_hour")

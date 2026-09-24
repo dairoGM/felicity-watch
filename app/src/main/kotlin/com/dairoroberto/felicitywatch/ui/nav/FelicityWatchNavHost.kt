@@ -1,6 +1,7 @@
 package com.dairoroberto.felicitywatch.ui.nav
 
 import androidx.activity.compose.BackHandler
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Calculate
@@ -88,6 +89,27 @@ fun FelicityWatchNavHost(
     if (!onboardingCompleted) {
         OnboardingScreen(onFinished = { rootViewModel.completeOnboarding() })
         return
+    }
+
+    val deviceAccessState by rootViewModel.deviceAccessState.collectAsState()
+    when (deviceAccessState) {
+        DeviceAccessState.Checking -> {
+            androidx.compose.foundation.layout.Box(
+                modifier = Modifier.fillMaxSize(),
+                contentAlignment = androidx.compose.ui.Alignment.Center
+            ) {
+                androidx.compose.material3.CircularProgressIndicator()
+            }
+            return
+        }
+        DeviceAccessState.Blocked -> {
+            DeviceBlockedScreen(
+                onAccessGranted = { rootViewModel.checkDeviceAccess() },
+                onRetryCheck = { rootViewModel.checkDeviceAccess() }
+            )
+            return
+        }
+        DeviceAccessState.Allowed -> Unit
     }
 
     val navController = rememberNavController()

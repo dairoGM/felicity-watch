@@ -6,8 +6,11 @@ import androidx.lifecycle.viewModelScope
 import com.dairoroberto.felicitywatch.data.local.AppPreferences
 import com.dairoroberto.felicitywatch.data.local.CredentialsStore
 import com.dairoroberto.felicitywatch.data.remote.RawResponseRecorder
+import com.dairoroberto.felicitywatch.data.repository.AccountDeviceInfo
 import com.dairoroberto.felicitywatch.data.repository.AlertEventRepository
 import com.dairoroberto.felicitywatch.data.repository.AlertRuleRepository
+import com.dairoroberto.felicitywatch.data.repository.ClaimMasterResult
+import com.dairoroberto.felicitywatch.data.repository.DeviceRoleRepository
 import com.dairoroberto.felicitywatch.data.repository.FelicityRepository
 import com.dairoroberto.felicitywatch.data.repository.MigrationProgress
 import com.dairoroberto.felicitywatch.data.repository.SupabaseSyncRepository
@@ -56,6 +59,7 @@ class SettingsViewModel @Inject constructor(
     stateHolder: MonitoringStateHolder,
     private val rawResponseRecorder: RawResponseRecorder,
     private val supabaseSyncRepository: SupabaseSyncRepository,
+    private val deviceRoleRepository: DeviceRoleRepository,
     @ApplicationContext private val context: Context
 ) : ViewModel() {
 
@@ -358,7 +362,7 @@ class SettingsViewModel @Inject constructor(
         viewModelScope.launch {
             _isGeneratingPairingPin.value = true
             try {
-                _pairingPin.value = supabaseSyncRepository.createDesktopPairingPin()
+                _pairingPin.value = deviceRoleRepository.createPairingPin(targetPlatform = "desktop")
             } catch (e: Exception) {
                 _pairingPin.value = null
                 emit("No se pudo generar el PIN: ${describeMonitoringError(e)}")
@@ -370,6 +374,109 @@ class SettingsViewModel @Inject constructor(
 
     fun clearPairingPin() {
         _pairingPin.value = null
+    }
+
+    // ---- Rol de dispositivo (master/cliente) y gestión de dispositivos ----
+
+    val isMasterDevice: StateFlow<Boolean> = appPreferences.isMasterDevice
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), false)
+
+    private val _isClaimingMaster = MutableStateFlow(false)
+    val isClaimingMaster: StateFlow<Boolean> = _isClaimingMaster
+
+    private val _currentMasterInfo = MutableStateFlow<AccountDeviceInfo?>(null)
+    /** Info de la master vigente, para mostrarla cuando ESTE dispositivo no lo es. */
+    val currentMasterInfo: StateFlow<AccountDeviceInfo?> = _currentMasterInfo
+
+    private val _accountDevices = MutableStateFlow<List<AccountDeviceInfo>>(emptyList())
+    val accountDevices: StateFlow<List<AccountDeviceInfo>> = _accountDevices
+
+    private val _isLoadingDevices = MutableStateFlow(false)
+    val isLoadingDevices: StateFlow<Boolean> = _isLoadingDevices
+
+    private val _isGeneratingClientPin = MutableStateFlow(false)
+    val isGeneratingClientPin: StateFlow<Boolean> = _isGeneratingClientPin
+
+    private val _clientPairingPin = MutableStateFlow<String?>(null)
+    val clientPairingPin: StateFlow<String?> = _clientPairingPin
+
+    init {
+        viewModelScope.launch {
+            if (!appPreferences.isMasterDevice.first()) {
+                _currentMasterInfo.value = deviceRoleRepository.currentMaster()
+            }
+        }
+    }
+
+    /** Intenta marcar este dispositivo como master. Si otro ya lo es
+     * (protegido por el índice único de Supabase), informa cuál. */
+    fun claimMasterRole() {
+        if (_isClaimingMaster.value) return
+        viewModelScope.launch {
+            _isClaimingMaster.value = true
+            try {
+                when (val result = deviceRoleRepository.claimMaster()) {
+                    is ClaimMasterResult.Success -> emit("Este dispositivo ahora es el principal")
+                    is ClaimMasterResult.AlreadyClaimed -> {
+                        _currentMasterInfo.value = deviceRoleRepository.currentMaster()
+                        emit("Ya hay un dispositivo principal para esta cuenta: ${result.displayName ?: result.deviceId.take(8)}")
+                    }
+                    is ClaimMasterResult.Failed -> emit("No se pudo marcar como principal: ${result.message}")
+                }
+            } catch (e: Exception) {
+                emit("No se pudo marcar como principal: ${describeMonitoringError(e)}")
+            } finally {
+                _isClaimingMaster.value = false
+            }
+        }
+    }
+
+    fun generateClientPairingPin() {
+        if (_isGeneratingClientPin.value) return
+        viewModelScope.launch {
+            _isGeneratingClientPin.value = true
+            try {
+                _clientPairingPin.value = deviceRoleRepository.createPairingPin(targetPlatform = "android")
+            } catch (e: Exception) {
+                _clientPairingPin.value = null
+                emit("No se pudo generar el código: ${describeMonitoringError(e)}")
+            } finally {
+                _isGeneratingClientPin.value = false
+            }
+        }
+    }
+
+    fun clearClientPairingPin() {
+        _clientPairingPin.value = null
+    }
+
+    fun loadAccountDevices() {
+        if (_isLoadingDevices.value) return
+        viewModelScope.launch {
+            _isLoadingDevices.value = true
+            try {
+                _accountDevices.value = deviceRoleRepository.listAccountDevices()
+            } catch (e: Exception) {
+                emit("No se pudo cargar la lista de dispositivos: ${describeMonitoringError(e)}")
+            } finally {
+                _isLoadingDevices.value = false
+            }
+        }
+    }
+
+    fun renameDevice(deviceId: String, name: String) {
+        viewModelScope.launch {
+            deviceRoleRepository.renameDevice(deviceId, name)
+            loadAccountDevices()
+        }
+    }
+
+    fun revokeDevice(deviceId: String) {
+        viewModelScope.launch {
+            deviceRoleRepository.revokeDevice(deviceId)
+            loadAccountDevices()
+            emit("Dispositivo revocado")
+        }
     }
 
     /** Diagnóstico sin USB: copia la última respuesta cruda de Felicity para pegarla donde haga falta. */
