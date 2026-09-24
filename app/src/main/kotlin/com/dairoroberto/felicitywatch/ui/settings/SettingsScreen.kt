@@ -1368,6 +1368,25 @@ private fun ChannelTestRow(icon: ImageVector, label: String, onTest: () -> Unit)
     }
 }
 
+/** "hace 5min" / "hace 3h" / "ayer" / "12 sep" — misma idea que
+ * dataAgeLabel() del Panel, pero con escala de días para "última actividad",
+ * que puede ser mucho más vieja que un dato de inversor. */
+private fun formatLastSeen(instant: java.time.Instant): String {
+    val now = java.time.Instant.now()
+    val secondsAgo = java.time.Duration.between(instant, now).seconds.coerceAtLeast(0)
+    return when {
+        secondsAgo < 60 -> "hace ${secondsAgo}s"
+        secondsAgo < 3600 -> "hace ${secondsAgo / 60}min"
+        secondsAgo < 86_400 -> "hace ${secondsAgo / 3600}h"
+        secondsAgo < 172_800 -> "ayer"
+        secondsAgo < 604_800 -> "hace ${secondsAgo / 86_400} días"
+        else -> {
+            val formatter = java.time.format.DateTimeFormatter.ofPattern("d MMM").withLocale(Locale("es", "ES"))
+            formatter.format(instant.atZone(java.time.ZoneId.systemDefault()))
+        }
+    }
+}
+
 @Composable
 private fun AccountDeviceRow(
     device: com.dairoroberto.felicitywatch.data.repository.AccountDeviceInfo,
@@ -1419,7 +1438,7 @@ private fun AccountDeviceRow(
                     Text(
                         "${if (device.role == "master") "Principal" else "Cliente"}" +
                             (if (device.revoked) " · Revocado" else "") +
-                            (device.lastSeenAt?.let { " · Visto ${it.toString().take(16).replace('T', ' ')}" } ?: ""),
+                            (device.lastSeenAt?.let { " · Visto ${formatLastSeen(it)}" } ?: " · Sin actividad registrada"),
                         style = MaterialTheme.typography.labelSmall,
                         color = colors.textLow
                     )
