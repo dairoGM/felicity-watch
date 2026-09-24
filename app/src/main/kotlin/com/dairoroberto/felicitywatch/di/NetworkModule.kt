@@ -133,7 +133,14 @@ object NetworkModule {
     fun provideSupabaseRetrofit(@Named("supabase") client: OkHttpClient): Retrofit = Retrofit.Builder()
         .baseUrl(SupabaseConfig.BASE_URL)
         .client(client)
-        .addConverterFactory(GsonConverterFactory.create())
+        // PostgREST exige que TODOS los objetos de un array insertado tengan
+        // exactamente las mismas claves ("All object keys must match",
+        // PGRST102) -- verificado contra el servidor real. Gson por defecto
+        // OMITE los campos null en vez de escribirlos como `"campo":null`,
+        // así que dos lecturas con distintos campos nulos (ej. gridVoltage
+        // solo existe con corriente, outputVoltage solo sin corriente)
+        // generaban objetos con distintas claves y el batch entero fallaba.
+        .addConverterFactory(GsonConverterFactory.create(com.google.gson.GsonBuilder().serializeNulls().create()))
         .build()
 
     @Provides
