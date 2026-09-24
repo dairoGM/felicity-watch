@@ -37,6 +37,11 @@ data class AccountDeviceInfo(
     val revoked: Boolean
 )
 
+/** Un código de emparejamiento recién generado, con su momento de expiración
+ * — para que la UI pueda mostrar una cuenta regresiva en vez de un PIN que
+ * expira en silencio. */
+data class PairingCode(val pin: String, val expiresAt: Instant)
+
 /**
  * Controla el modelo master/cliente entre instalaciones móviles de la misma
  * cuenta: exactamente una es "master" (consulta Felicity y sincroniza a
@@ -112,10 +117,10 @@ class DeviceRoleRepository @Inject constructor(
      * en la tabla, la protección real está en que un cliente sin aprobar
      * jamás llega a mostrar esta pantalla (ver EvaluateDeviceApprovalUseCase).
      */
-    suspend fun createPairingPin(targetPlatform: String): String {
+    suspend fun createPairingPin(targetPlatform: String): PairingCode {
         val deviceId = appPreferences.supabaseDeviceId()
         val pin = Random.nextInt(0, 1_000_000).toString().padStart(6, '0')
-        val expiresAt = Instant.now().plusSeconds(PAIRING_TTL_MINUTES * 60)
+        val expiresAt = Instant.now().plusSeconds(PAIRING_TTL_SECONDS)
 
         val response = api.createDesktopPairing(
             prefer = "return=minimal",
@@ -131,7 +136,7 @@ class DeviceRoleRepository @Inject constructor(
         if (!response.isSuccessful) {
             throw SupabaseSyncException(response.code(), response.errorBody()?.string())
         }
-        return pin
+        return PairingCode(pin, expiresAt)
     }
 
     /**
@@ -249,6 +254,9 @@ class DeviceRoleRepository @Inject constructor(
     }
 
     private companion object {
-        const val PAIRING_TTL_MINUTES = 15L
+        /** Corto a propósito: es solo para el momento de conectar (la
+         * persona lo ve en un dispositivo y lo escribe en el otro casi de
+         * inmediato), no una credencial de largo plazo. */
+        const val PAIRING_TTL_SECONDS = 120L
     }
 }

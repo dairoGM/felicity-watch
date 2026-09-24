@@ -13,6 +13,7 @@ import com.dairoroberto.felicitywatch.data.repository.ClaimMasterResult
 import com.dairoroberto.felicitywatch.data.repository.DeviceRoleRepository
 import com.dairoroberto.felicitywatch.data.repository.FelicityRepository
 import com.dairoroberto.felicitywatch.data.repository.MigrationProgress
+import com.dairoroberto.felicitywatch.data.repository.PairingCode
 import com.dairoroberto.felicitywatch.data.repository.SupabaseSyncRepository
 import com.dairoroberto.felicitywatch.domain.usecase.RunMonitoringCycleUseCase
 import com.dairoroberto.felicitywatch.domain.usecase.describeMonitoringError
@@ -353,16 +354,20 @@ class SettingsViewModel @Inject constructor(
     private val _isGeneratingPairingPin = MutableStateFlow(false)
     val isGeneratingPairingPin: StateFlow<Boolean> = _isGeneratingPairingPin
 
-    private val _pairingPin = MutableStateFlow<String?>(null)
-    /** PIN de 6 dígitos vigente para emparejar la app de escritorio, o null si no hay uno activo. */
-    val pairingPin: StateFlow<String?> = _pairingPin
+    private val _pairingPin = MutableStateFlow<PairingCode?>(null)
+    /** PIN vigente para emparejar la app de escritorio, con su expiración, o null si no hay uno activo. */
+    val pairingPin: StateFlow<PairingCode?> = _pairingPin
+
+    private var pairingPinExpiryJob: kotlinx.coroutines.Job? = null
 
     fun generateDesktopPairingPin() {
         if (_isGeneratingPairingPin.value) return
         viewModelScope.launch {
             _isGeneratingPairingPin.value = true
             try {
-                _pairingPin.value = deviceRoleRepository.createPairingPin(targetPlatform = "desktop")
+                val code = deviceRoleRepository.createPairingPin(targetPlatform = "desktop")
+                _pairingPin.value = code
+                scheduleAutoRegenerate(code, ::generateDesktopPairingPin)
             } catch (e: Exception) {
                 _pairingPin.value = null
                 emit("No se pudo generar el PIN: ${describeMonitoringError(e)}")
@@ -373,7 +378,20 @@ class SettingsViewModel @Inject constructor(
     }
 
     fun clearPairingPin() {
+        pairingPinExpiryJob?.cancel()
         _pairingPin.value = null
+    }
+
+    /** Al llegar la expiración, genera un código nuevo automáticamente en vez
+     * de dejar uno vencido en pantalla — evita que el usuario copie un
+     * código que Supabase ya va a rechazar. */
+    private fun scheduleAutoRegenerate(code: PairingCode, regenerate: () -> Unit) {
+        pairingPinExpiryJob?.cancel()
+        pairingPinExpiryJob = viewModelScope.launch {
+            val delayMs = java.time.Duration.between(java.time.Instant.now(), code.expiresAt).toMillis()
+            if (delayMs > 0) kotlinx.coroutines.delay(delayMs)
+            regenerate()
+        }
     }
 
     // ---- Rol de dispositivo (master/cliente) y gestión de dispositivos ----
@@ -397,8 +415,10 @@ class SettingsViewModel @Inject constructor(
     private val _isGeneratingClientPin = MutableStateFlow(false)
     val isGeneratingClientPin: StateFlow<Boolean> = _isGeneratingClientPin
 
-    private val _clientPairingPin = MutableStateFlow<String?>(null)
-    val clientPairingPin: StateFlow<String?> = _clientPairingPin
+    private val _clientPairingPin = MutableStateFlow<PairingCode?>(null)
+    val clientPairingPin: StateFlow<PairingCode?> = _clientPairingPin
+
+    private var clientPairingPinExpiryJob: kotlinx.coroutines.Job? = null
 
     init {
         viewModelScope.launch {
@@ -436,7 +456,14 @@ class SettingsViewModel @Inject constructor(
         viewModelScope.launch {
             _isGeneratingClientPin.value = true
             try {
-                _clientPairingPin.value = deviceRoleRepository.createPairingPin(targetPlatform = "android")
+                val code = deviceRoleRepository.createPairingPin(targetPlatform = "android")
+                _clientPairingPin.value = code
+                clientPairingPinExpiryJob?.cancel()
+                clientPairingPinExpiryJob = viewModelScope.launch {
+                    val delayMs = java.time.Duration.between(java.time.Instant.now(), code.expiresAt).toMillis()
+                    if (delayMs > 0) kotlinx.coroutines.delay(delayMs)
+                    generateClientPairingPin()
+                }
             } catch (e: Exception) {
                 _clientPairingPin.value = null
                 emit("No se pudo generar el código: ${describeMonitoringError(e)}")
@@ -447,6 +474,7 @@ class SettingsViewModel @Inject constructor(
     }
 
     fun clearClientPairingPin() {
+        clientPairingPinExpiryJob?.cancel()
         _clientPairingPin.value = null
     }
 

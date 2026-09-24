@@ -99,7 +99,7 @@ import java.util.Locale
 /** Alto uniforme para todos los botones de acción de esta pantalla. */
 private val ACTION_BUTTON_HEIGHT = 48.dp
 private val SECTION_CONTENT_SPACING = 12.dp
-private val SETTINGS_TABS = listOf("Cuenta", "Alertas", "Sistema", "Diagnóstico")
+private val BASE_SETTINGS_TABS = listOf("Cuenta", "Alertas", "Sistema", "Diagnóstico")
 
 private fun buildTimestampLabel(): String {
     val formatter = SimpleDateFormat("yyyy-MM-dd HH:mm", Locale("es", "ES"))
@@ -128,9 +128,16 @@ fun SettingsScreen(
     var showLogoutConfirm by remember { mutableStateOf(false) }
     var showFactoryResetConfirm by remember { mutableStateOf(false) }
     var selectedTab by remember { mutableIntStateOf(0) }
+    val isMasterDevice by viewModel.isMasterDevice.collectAsState()
 
     val snackbarHostState = remember { SnackbarHostState() }
     val coroutineScope = rememberCoroutineScope()
+
+    // Si el rol cambia mientras Ajustes está abierto (ej. se reclama el rol
+    // de master en esta misma sesión), la pestaña "Dispositivos" aparece o
+    // desaparece y desplaza los índices — se vuelve a "Cuenta" para no dejar
+    // seleccionado un índice que ahora apunta a otro contenido.
+    LaunchedEffect(isMasterDevice) { selectedTab = 0 }
 
     LaunchedEffect(Unit) {
         viewModel.messages.collect { message ->
@@ -193,13 +200,22 @@ fun SettingsScreen(
         )
     }
 
+    // "Dispositivos" solo tiene sentido en la master (generar códigos de
+    // acceso, administrar quién está registrado) — un cliente ni siquiera ve
+    // la pestaña, no solo su contenido deshabilitado.
+    val settingsTabs = if (isMasterDevice) {
+        BASE_SETTINGS_TABS.toMutableList().apply { add(2, "Dispositivos") }
+    } else {
+        BASE_SETTINGS_TABS
+    }
+
     Scaffold(
         snackbarHost = { SnackbarHost(snackbarHostState) { ElegantSnackbar(it) } }
     ) { scaffoldPadding ->
         Column(Modifier.fillMaxSize().padding(scaffoldPadding)) {
             val colors = LocalFelicityColors.current
             TabRow(selectedTabIndex = selectedTab, containerColor = colors.surface2) {
-                SETTINGS_TABS.forEachIndexed { index, title ->
+                settingsTabs.forEachIndexed { index, title ->
                     Tab(
                         selected = selectedTab == index,
                         onClick = { selectedTab = index },
@@ -213,20 +229,20 @@ fun SettingsScreen(
                 contentPadding = PaddingValues(16.dp),
                 verticalArrangement = Arrangement.spacedBy(14.dp)
             ) {
-                when (selectedTab) {
-                    0 -> accountTab(
+                when (settingsTabs.getOrNull(selectedTab)) {
+                    "Cuenta" -> accountTab(
                         formState = formState,
                         viewModel = viewModel,
                         onShowLogoutConfirm = { showLogoutConfirm = true }
                     )
-                    1 -> alertsTab(
+                    "Alertas" -> alertsTab(
                         isTestingConnection = isTestingConnection,
                         viewModel = viewModel,
                         alertsViewModel = alertsViewModel,
                         alertRules = alertRules,
                         onTestPushChannel = requestPushPermissionThenTest
                     )
-                    2 -> systemTab(
+                    "Sistema" -> systemTab(
                         pollingIntervalSeconds = pollingIntervalSeconds,
                         serviceRunning = serviceRunning,
                         darkModeEnabled = darkModeEnabled,
@@ -238,7 +254,8 @@ fun SettingsScreen(
                         },
                         viewModel = viewModel
                     )
-                    3 -> diagnosticsTab(
+                    "Dispositivos" -> devicesTab(viewModel = viewModel)
+                    "Diagnóstico" -> diagnosticsTab(
                         lastInverterRawJson = lastInverterRawJson,
                         lastBatteryRawJson = lastBatteryRawJson,
                         isLoadingDeviceList = isLoadingDeviceList,
@@ -375,6 +392,51 @@ private fun LazyListScope.systemTab(
     onRequestBatteryExclusion: () -> Unit,
     viewModel: SettingsViewModel
 ) {
+    item {
+        val colors = LocalFelicityColors.current
+        val isMaster by viewModel.isMasterDevice.collectAsState()
+        val masterInfo by viewModel.currentMasterInfo.collectAsState()
+
+        SectionCard(title = "Rol de este dispositivo") {
+            if (isMaster) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Icon(Icons.Default.CloudSync, contentDescription = null, tint = colors.green)
+                    Text(
+                        "Este dispositivo es el principal",
+                        style = MaterialTheme.typography.bodyMedium,
+                        fontWeight = FontWeight.Medium,
+                        color = colors.green,
+                        modifier = Modifier.padding(start = 8.dp)
+                    )
+                }
+                Text(
+                    "Configura los códigos de acceso en la pestaña Dispositivos.",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = colors.textLow,
+                    modifier = Modifier.padding(top = 6.dp)
+                )
+            } else {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Icon(Icons.Default.CloudSync, contentDescription = null, tint = colors.accent)
+                    Text(
+                        "Este dispositivo es cliente",
+                        style = MaterialTheme.typography.bodyMedium,
+                        fontWeight = FontWeight.Medium,
+                        color = colors.textHi,
+                        modifier = Modifier.padding(start = 8.dp)
+                    )
+                }
+                Text(
+                    "Consulta a Felicity con permiso del dispositivo principal" +
+                        (masterInfo?.let { " (${it.displayName ?: it.deviceId.take(8)})" } ?: "") + ".",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = colors.textLow,
+                    modifier = Modifier.padding(top = 6.dp)
+                )
+            }
+        }
+    }
+
     item {
         val colors = LocalFelicityColors.current
         val publishInterval by viewModel.inverterPublishIntervalSeconds.collectAsState()
@@ -903,6 +965,15 @@ private fun LazyListScope.systemTab(
         }
     }
 
+}
+
+/**
+ * Pestaña "Dispositivos" — solo tiene sentido en la master (el ítem de la
+ * TabRow ya se oculta por completo para un cliente, ver [SettingsScreen]):
+ * marcar/confirmar el rol de este dispositivo, generar códigos de acceso
+ * (celular cliente o escritorio) y administrar los dispositivos registrados.
+ */
+private fun LazyListScope.devicesTab(viewModel: SettingsViewModel) {
     item {
         val colors = LocalFelicityColors.current
         val isMaster by viewModel.isMasterDevice.collectAsState()
@@ -959,14 +1030,10 @@ private fun LazyListScope.systemTab(
         val isMaster by viewModel.isMasterDevice.collectAsState()
         if (!isMaster) return@item
 
-        val devices by viewModel.accountDevices.collectAsState()
-        val loadingDevices by viewModel.isLoadingDevices.collectAsState()
         val generatingClientPin by viewModel.isGeneratingClientPin.collectAsState()
         val clientPin by viewModel.clientPairingPin.collectAsState()
 
-        LaunchedEffect(Unit) { viewModel.loadAccountDevices() }
-
-        SectionCard(title = "Dispositivos") {
+        SectionCard(title = "Generar código para un celular") {
             Text(
                 "Otros teléfonos con esta cuenta necesitan un código de acceso para funcionar. " +
                     "Genera uno y compártelo con ese dispositivo.",
@@ -976,7 +1043,7 @@ private fun LazyListScope.systemTab(
 
             if (clientPin != null) {
                 Text(
-                    clientPin!!,
+                    clientPin!!.pin,
                     style = MaterialTheme.typography.displaySmall,
                     fontFamily = com.dairoroberto.felicitywatch.ui.theme.JetBrainsMonoFamily,
                     fontWeight = FontWeight.Bold,
@@ -984,11 +1051,9 @@ private fun LazyListScope.systemTab(
                     textAlign = TextAlign.Center,
                     modifier = Modifier.fillMaxWidth().padding(top = SECTION_CONTENT_SPACING)
                 )
-                Text(
-                    "Escribe este código en el otro teléfono. Expira en 15 minutos o al usarlo una vez.",
-                    style = MaterialTheme.typography.labelSmall,
-                    color = colors.textLow,
-                    textAlign = TextAlign.Center,
+                PairingCountdown(
+                    expiresAt = clientPin!!.expiresAt,
+                    colors = colors,
                     modifier = Modifier.fillMaxWidth().padding(top = 4.dp)
                 )
                 ActionButton(
@@ -1006,36 +1071,6 @@ private fun LazyListScope.systemTab(
                     modifier = Modifier.padding(top = SECTION_CONTENT_SPACING)
                 )
             }
-
-            HorizontalDivider(modifier = Modifier.padding(vertical = 16.dp), color = colors.hairline)
-
-            Text(
-                "DISPOSITIVOS REGISTRADOS",
-                style = MaterialTheme.typography.labelSmall,
-                fontSize = 10.sp,
-                fontWeight = FontWeight.Bold,
-                color = colors.textLow
-            )
-
-            if (loadingDevices) {
-                LinearProgressIndicator(modifier = Modifier.fillMaxWidth().padding(top = 8.dp))
-            } else if (devices.isEmpty()) {
-                Text(
-                    "Todavía no hay otros dispositivos registrados.",
-                    style = MaterialTheme.typography.labelSmall,
-                    color = colors.textLow,
-                    modifier = Modifier.padding(top = 8.dp)
-                )
-            } else {
-                devices.forEach { device ->
-                    AccountDeviceRow(
-                        device = device,
-                        colors = colors,
-                        onRename = { name -> viewModel.renameDevice(device.deviceId, name) },
-                        onRevoke = { viewModel.revokeDevice(device.deviceId) }
-                    )
-                }
-            }
         }
     }
 
@@ -1048,12 +1083,12 @@ private fun LazyListScope.systemTab(
         val pin by viewModel.pairingPin.collectAsState()
         val generating by viewModel.isGeneratingPairingPin.collectAsState()
 
-        SectionCard(title = "App de escritorio") {
+        SectionCard(title = "Generar PIN para la app de escritorio") {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Icon(Icons.Default.CloudSync, contentDescription = null, tint = colors.accent)
                 Text(
                     "Genera un PIN de un solo uso para conectar la app de escritorio a tu historial " +
-                        "en la nube. Válido por 15 minutos.",
+                        "en la nube.",
                     style = MaterialTheme.typography.bodySmall,
                     color = colors.textMid,
                     modifier = Modifier.padding(start = 8.dp)
@@ -1062,15 +1097,15 @@ private fun LazyListScope.systemTab(
 
             if (!migrationDone) {
                 Text(
-                    "Primero migra tu historial a la nube (arriba) — sin eso la app de escritorio " +
-                        "no tendría nada que mostrar.",
+                    "Primero migra tu historial a la nube (pestaña Sistema) — sin eso la app de " +
+                        "escritorio no tendría nada que mostrar.",
                     style = MaterialTheme.typography.labelSmall,
                     color = colors.textLow,
                     modifier = Modifier.padding(top = SECTION_CONTENT_SPACING)
                 )
             } else if (pin != null) {
                 Text(
-                    pin!!,
+                    pin!!.pin,
                     style = MaterialTheme.typography.displaySmall,
                     fontFamily = com.dairoroberto.felicitywatch.ui.theme.JetBrainsMonoFamily,
                     fontWeight = FontWeight.Bold,
@@ -1078,11 +1113,9 @@ private fun LazyListScope.systemTab(
                     textAlign = TextAlign.Center,
                     modifier = Modifier.fillMaxWidth().padding(top = SECTION_CONTENT_SPACING)
                 )
-                Text(
-                    "Escribe este código en la app de escritorio. Expira en 15 minutos o al usarlo una vez.",
-                    style = MaterialTheme.typography.labelSmall,
-                    color = colors.textLow,
-                    textAlign = TextAlign.Center,
+                PairingCountdown(
+                    expiresAt = pin!!.expiresAt,
+                    colors = colors,
                     modifier = Modifier.fillMaxWidth().padding(top = 4.dp)
                 )
                 ActionButton(
@@ -1102,6 +1135,71 @@ private fun LazyListScope.systemTab(
             }
         }
     }
+
+    item {
+        val colors = LocalFelicityColors.current
+        val isMaster by viewModel.isMasterDevice.collectAsState()
+        if (!isMaster) return@item
+
+        val devices by viewModel.accountDevices.collectAsState()
+        val loadingDevices by viewModel.isLoadingDevices.collectAsState()
+
+        LaunchedEffect(Unit) { viewModel.loadAccountDevices() }
+
+        SectionCard(title = "Dispositivos registrados") {
+            if (loadingDevices) {
+                LinearProgressIndicator(modifier = Modifier.fillMaxWidth())
+            } else if (devices.isEmpty()) {
+                Text(
+                    "Todavía no hay otros dispositivos registrados.",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = colors.textLow
+                )
+            } else {
+                devices.forEach { device ->
+                    AccountDeviceRow(
+                        device = device,
+                        colors = colors,
+                        onRename = { name -> viewModel.renameDevice(device.deviceId, name) },
+                        onRevoke = { viewModel.revokeDevice(device.deviceId) }
+                    )
+                }
+            }
+        }
+    }
+}
+
+/** Cuenta regresiva "Expira en 1:47" hasta [expiresAt], se actualiza cada segundo. */
+@Composable
+private fun PairingCountdown(
+    expiresAt: java.time.Instant,
+    colors: com.dairoroberto.felicitywatch.ui.theme.FelicitySemanticColors,
+    modifier: Modifier = Modifier
+) {
+    var remainingSeconds by remember(expiresAt) {
+        mutableStateOf(java.time.Duration.between(java.time.Instant.now(), expiresAt).seconds.coerceAtLeast(0))
+    }
+
+    LaunchedEffect(expiresAt) {
+        while (remainingSeconds > 0) {
+            kotlinx.coroutines.delay(1000)
+            remainingSeconds = java.time.Duration.between(java.time.Instant.now(), expiresAt).seconds.coerceAtLeast(0)
+        }
+    }
+
+    val minutes = remainingSeconds / 60
+    val seconds = remainingSeconds % 60
+    Text(
+        if (remainingSeconds > 0) {
+            "Expira en %d:%02d, o al usarlo una vez".format(minutes, seconds)
+        } else {
+            "Generando un código nuevo…"
+        },
+        style = MaterialTheme.typography.labelSmall,
+        color = colors.textLow,
+        textAlign = TextAlign.Center,
+        modifier = modifier
+    )
 }
 
 private fun LazyListScope.diagnosticsTab(
