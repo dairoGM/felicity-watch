@@ -3,10 +3,8 @@ package com.dairoroberto.felicitywatch.data.remote
 import com.dairoroberto.felicitywatch.data.remote.dto.SupabasePowerReadingDto
 import retrofit2.Response
 import retrofit2.http.Body
-import retrofit2.http.GET
 import retrofit2.http.Header
 import retrofit2.http.POST
-import retrofit2.http.Query
 
 /**
  * PostgREST (la API REST automática de Supabase) para la tabla
@@ -25,16 +23,7 @@ interface SupabaseApiService {
      */
     @POST("rest/v1/power_readings")
     suspend fun insertReadings(
-        @Header("Prefer") prefer: String = "resolution=ignore-duplicates,return=minimal",
+        @Header("Prefer") prefer: String,
         @Body readings: List<SupabasePowerReadingDto>
     ): Response<Unit>
-
-    /** Para saber si ESTE dispositivo ya tiene datos migrados (evita repetir la migración inicial). */
-    @GET("rest/v1/power_readings")
-    suspend fun countReadings(
-        @Query("device_id") deviceIdFilter: String,
-        @Query("select") select: String = "timestamp_epoch_millis",
-        @Header("Prefer") prefer: String = "count=exact",
-        @Query("limit") limit: Int = 1
-    ): Response<List<Map<String, Any?>>>
 }

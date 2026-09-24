@@ -44,7 +44,7 @@ class SupabaseSyncRepository @Inject constructor(
      * ciclo normal de monitoreo, una vez habilitada la sincronización. */
     suspend fun pushReading(reading: PowerReadingEntity) {
         val deviceId = appPreferences.supabaseDeviceId()
-        val response = api.insertReadings(readings = listOf(reading.toDto(deviceId)))
+        val response = api.insertReadings(prefer = INSERT_PREFER, readings = listOf(reading.toDto(deviceId)))
         if (!response.isSuccessful) {
             throw SupabaseSyncException(response.code(), response.errorBody()?.string())
         }
@@ -68,7 +68,7 @@ class SupabaseSyncRepository @Inject constructor(
             if (page.isEmpty()) break
 
             val dtos = page.map { it.toDto(deviceId) }
-            val response = api.insertReadings(readings = dtos)
+            val response = api.insertReadings(prefer = INSERT_PREFER, readings = dtos)
             if (!response.isSuccessful) {
                 throw SupabaseSyncException(response.code(), response.errorBody()?.string())
             }
@@ -102,5 +102,13 @@ class SupabaseSyncRepository @Inject constructor(
         /** PostgREST acepta lotes grandes, pero un tamaño moderado mantiene
          * cada solicitud rápida y fácil de reintentar si falla a la mitad. */
         private const val BATCH_SIZE = 500
+
+        /** `ignore-duplicates` hace que un reintento (falló a mitad de la
+         * migración, o una lectura que ya se había subido) no rompa el lote
+         * por violar el UNIQUE(device_id, timestamp_epoch_millis) — se
+         * pasa explícito en cada llamada porque los valores por defecto de
+         * un parámetro @Header en una interfaz Retrofit no siempre se
+         * aplican de forma confiable a través del proxy dinámico. */
+        private const val INSERT_PREFER = "resolution=ignore-duplicates,return=minimal"
     }
 }
