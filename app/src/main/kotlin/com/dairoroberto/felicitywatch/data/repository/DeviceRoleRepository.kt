@@ -3,6 +3,7 @@ package com.dairoroberto.felicitywatch.data.repository
 import com.dairoroberto.felicitywatch.data.local.AppPreferences
 import com.dairoroberto.felicitywatch.data.remote.SupabaseApiService
 import com.dairoroberto.felicitywatch.data.remote.dto.AccountDeviceDto
+import com.dairoroberto.felicitywatch.data.remote.dto.AccountDeviceStatusDto
 import com.dairoroberto.felicitywatch.data.remote.dto.DesktopPairingDto
 import kotlinx.coroutines.flow.first
 import java.time.Instant
@@ -34,7 +35,10 @@ data class AccountDeviceInfo(
     val displayName: String?,
     val approvedAt: Instant?,
     val lastSeenAt: Instant?,
-    val revoked: Boolean
+    val revoked: Boolean,
+    val latitude: Double? = null,
+    val longitude: Double? = null,
+    val locationUpdatedAt: Instant? = null
 )
 
 /** Un código de emparejamiento recién generado, con su momento de expiración
@@ -94,16 +98,7 @@ class DeviceRoleRepository @Inject constructor(
     suspend fun currentMaster(): AccountDeviceInfo? {
         val response = api.getAccountDevices(roleFilter = "eq.master", revokedFilter = "eq.false")
         if (!response.isSuccessful) return null
-        return response.body()?.firstOrNull()?.let {
-            AccountDeviceInfo(
-                deviceId = it.deviceId,
-                role = it.role,
-                displayName = it.displayName,
-                approvedAt = it.approvedAt?.let(Instant::parse),
-                lastSeenAt = it.lastSeenAt?.let(Instant::parse),
-                revoked = it.revoked
-            )
-        }
+        return response.body()?.firstOrNull()?.toInfo()
     }
 
     /** true si ESTE dispositivo ya es la master (cache local, ver [AppPreferences.isMasterDevice]). */
@@ -210,17 +205,20 @@ class DeviceRoleRepository @Inject constructor(
     suspend fun listAccountDevices(): List<AccountDeviceInfo> {
         val response = api.getAccountDevices()
         if (!response.isSuccessful) return emptyList()
-        return response.body().orEmpty().map {
-            AccountDeviceInfo(
-                deviceId = it.deviceId,
-                role = it.role,
-                displayName = it.displayName,
-                approvedAt = it.approvedAt?.let(Instant::parse),
-                lastSeenAt = it.lastSeenAt?.let(Instant::parse),
-                revoked = it.revoked
-            )
-        }
+        return response.body().orEmpty().map { it.toInfo() }
     }
+
+    private fun AccountDeviceStatusDto.toInfo() = AccountDeviceInfo(
+        deviceId = deviceId,
+        role = role,
+        displayName = displayName,
+        approvedAt = approvedAt?.let(Instant::parse),
+        lastSeenAt = lastSeenAt?.let(Instant::parse),
+        revoked = revoked,
+        latitude = latitude,
+        longitude = longitude,
+        locationUpdatedAt = locationUpdatedAt?.let(Instant::parse)
+    )
 
     suspend fun renameDevice(deviceId: String, displayName: String) {
         api.updateAccountDevice(
@@ -247,6 +245,27 @@ class DeviceRoleRepository @Inject constructor(
                 deviceIdFilter = "eq.$deviceId",
                 prefer = "return=minimal",
                 updates = mapOf("last_seen_at" to DateTimeFormatter.ISO_INSTANT.format(Instant.now()))
+            )
+        } catch (e: Exception) {
+            // Best-effort: no debe afectar el ciclo de monitoreo.
+        }
+    }
+
+    /** Sube la ubicación de ESTE dispositivo — llamada best-effort desde el
+     * ciclo de monitoreo normal (ver [UpdateDeviceLocationUseCase], que
+     * modera la frecuencia real de captura para no gastar batería en cada
+     * ciclo). */
+    suspend fun updateOwnLocation(latitude: Double, longitude: Double) {
+        val deviceId = appPreferences.supabaseDeviceId()
+        try {
+            api.updateAccountDevice(
+                deviceIdFilter = "eq.$deviceId",
+                prefer = "return=minimal",
+                updates = mapOf(
+                    "latitude" to latitude,
+                    "longitude" to longitude,
+                    "location_updated_at" to DateTimeFormatter.ISO_INSTANT.format(Instant.now())
+                )
             )
         } catch (e: Exception) {
             // Best-effort: no debe afectar el ciclo de monitoreo.

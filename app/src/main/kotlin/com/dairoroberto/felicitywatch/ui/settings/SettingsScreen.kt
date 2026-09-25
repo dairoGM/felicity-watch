@@ -171,6 +171,28 @@ fun SettingsScreen(
         }
     }
 
+    // Ubicación para el mapa de dispositivos de la master (guía) — este
+    // dispositivo puede ser cliente o master, así que cualquiera necesita el
+    // permiso para reportar su posición.
+    var hasLocationPermission by remember {
+        mutableStateOf(
+            ContextCompat.checkSelfPermission(context, Manifest.permission.ACCESS_FINE_LOCATION) ==
+                PackageManager.PERMISSION_GRANTED ||
+                ContextCompat.checkSelfPermission(context, Manifest.permission.ACCESS_COARSE_LOCATION) ==
+                    PackageManager.PERMISSION_GRANTED
+        )
+    }
+    val locationPermissionLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.RequestMultiplePermissions()
+    ) { results ->
+        hasLocationPermission = results.values.any { it }
+    }
+    val requestLocationPermission: () -> Unit = {
+        locationPermissionLauncher.launch(
+            arrayOf(Manifest.permission.ACCESS_FINE_LOCATION, Manifest.permission.ACCESS_COARSE_LOCATION)
+        )
+    }
+
     if (showLogoutConfirm) {
         AlertDialog(
             onDismissRequest = { showLogoutConfirm = false },
@@ -264,6 +286,8 @@ fun SettingsScreen(
                             requestIgnoreBatteryOptimizations(context)
                             batteryExcluded = isIgnoringBatteryOptimizations(context)
                         },
+                        hasLocationPermission = hasLocationPermission,
+                        onRequestLocationPermission = requestLocationPermission,
                         viewModel = viewModel
                     )
                     "Dispositivos" -> devicesTab(viewModel = viewModel)
@@ -402,6 +426,8 @@ private fun LazyListScope.systemTab(
     onToggleDarkMode: (Boolean) -> Unit,
     batteryExcluded: Boolean,
     onRequestBatteryExclusion: () -> Unit,
+    hasLocationPermission: Boolean,
+    onRequestLocationPermission: () -> Unit,
     viewModel: SettingsViewModel
 ) {
     item {
@@ -444,6 +470,39 @@ private fun LazyListScope.systemTab(
                     style = MaterialTheme.typography.labelSmall,
                     color = colors.textLow,
                     modifier = Modifier.padding(top = 6.dp)
+                )
+            }
+        }
+    }
+
+    item {
+        val colors = LocalFelicityColors.current
+        SectionCard(title = "Ubicación") {
+            Text(
+                "Reporta la ubicación de este dispositivo para que el dispositivo principal " +
+                    "pueda ubicarlo en un mapa (pestaña Dispositivos).",
+                style = MaterialTheme.typography.bodySmall,
+                color = colors.textMid
+            )
+            if (hasLocationPermission) {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    modifier = Modifier.padding(top = SECTION_CONTENT_SPACING)
+                ) {
+                    Icon(Icons.Default.CloudSync, contentDescription = null, tint = colors.green)
+                    Text(
+                        "Permiso concedido",
+                        style = MaterialTheme.typography.bodyMedium,
+                        fontWeight = FontWeight.Medium,
+                        color = colors.green,
+                        modifier = Modifier.padding(start = 8.dp)
+                    )
+                }
+            } else {
+                ActionButton(
+                    text = "Habilitar ubicación",
+                    onClick = onRequestLocationPermission,
+                    modifier = Modifier.padding(top = SECTION_CONTENT_SPACING)
                 )
             }
         }
@@ -1155,6 +1214,7 @@ private fun LazyListScope.devicesTab(viewModel: SettingsViewModel) {
 
         val devices by viewModel.accountDevices.collectAsState()
         val loadingDevices by viewModel.isLoadingDevices.collectAsState()
+        var showMap by remember { mutableStateOf(false) }
 
         // Refresca sola mientras esta pestaña está abierta — antes solo
         // cargaba una vez al entrar, así que un cambio hecho desde otro
@@ -1167,6 +1227,10 @@ private fun LazyListScope.devicesTab(viewModel: SettingsViewModel) {
             }
         }
 
+        if (showMap) {
+            DeviceMapDialog(devices = devices, onDismiss = { showMap = false })
+        }
+
         SectionCard(title = "Dispositivos registrados") {
             if (loadingDevices) {
                 LinearProgressIndicator(modifier = Modifier.fillMaxWidth())
@@ -1177,6 +1241,14 @@ private fun LazyListScope.devicesTab(viewModel: SettingsViewModel) {
                     color = colors.textLow
                 )
             } else {
+                val locatedCount = devices.count { it.latitude != null && it.longitude != null }
+                ActionButton(
+                    text = if (locatedCount > 0) "Ver mapa ($locatedCount)" else "Ver mapa (sin ubicaciones aún)",
+                    outlined = true,
+                    enabled = locatedCount > 0,
+                    onClick = { showMap = true },
+                    modifier = Modifier.padding(bottom = SECTION_CONTENT_SPACING)
+                )
                 devices.forEach { device ->
                     AccountDeviceRow(
                         device = device,

@@ -39,7 +39,8 @@ class RunMonitoringCycleUseCase @Inject constructor(
     private val powerHistoryRepository: PowerHistoryRepository,
     private val notifyApplianceChangeUseCase: NotifyApplianceChangeUseCase,
     private val notifyLowVoltageUseCase: NotifyLowVoltageUseCase,
-    private val deviceRoleRepository: DeviceRoleRepository
+    private val deviceRoleRepository: DeviceRoleRepository,
+    private val updateDeviceLocationUseCase: UpdateDeviceLocationUseCase
 ) {
     suspend fun run(): SystemReading {
         if (!credentialsStore.hasFsolarCredentials()) {
@@ -82,6 +83,16 @@ class RunMonitoringCycleUseCase @Inject constructor(
         // Supabase caído, no debe cortar el ciclo de monitoreo.
         try {
             deviceRoleRepository.touchLastSeen()
+        } catch (e: Exception) {
+            // Ignorado a propósito.
+        }
+
+        // Ubicación para el mapa de la master — moderada internamente por
+        // UpdateDeviceLocationUseCase (no en cada ciclo). Best-effort igual
+        // que touchLastSeen: sin permiso de ubicación o sin GPS/red
+        // disponible, simplemente no actualiza nada este ciclo.
+        try {
+            updateDeviceLocationUseCase.run(now)
         } catch (e: Exception) {
             // Ignorado a propósito.
         }

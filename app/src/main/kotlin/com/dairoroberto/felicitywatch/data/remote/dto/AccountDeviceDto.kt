@@ -20,5 +20,8 @@ data class AccountDeviceStatusDto(
     @SerializedName("display_name") val displayName: String?,
     @SerializedName("approved_at") val approvedAt: String?,
     @SerializedName("last_seen_at") val lastSeenAt: String?,
-    @SerializedName("revoked") val revoked: Boolean
+    @SerializedName("revoked") val revoked: Boolean,
+    @SerializedName("latitude") val latitude: Double? = null,
+    @SerializedName("longitude") val longitude: Double? = null,
+    @SerializedName("location_updated_at") val locationUpdatedAt: String? = null
 )
