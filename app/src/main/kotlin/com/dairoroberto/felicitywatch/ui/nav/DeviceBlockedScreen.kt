@@ -73,11 +73,14 @@ fun DeviceBlockedScreen(
     val foregroundLocationLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.RequestMultiplePermissions()
     ) { results ->
-        if (results.values.any { it } && Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-            showBackgroundLocationExplainer = true
-        } else {
-            onAccessGranted()
+        if (results.values.any { it }) {
+            viewModel.captureLocationNow()
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                showBackgroundLocationExplainer = true
+                return@rememberLauncherForActivityResult
+            }
         }
+        onAccessGranted()
     }
     val onApproved: () -> Unit = {
         val hasForegroundPermission =
@@ -86,9 +89,14 @@ fun DeviceBlockedScreen(
                 ContextCompat.checkSelfPermission(context, Manifest.permission.ACCESS_COARSE_LOCATION) ==
                     PackageManager.PERMISSION_GRANTED
         when {
-            hasForegroundPermission && Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q ->
+            hasForegroundPermission && Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q -> {
+                viewModel.captureLocationNow()
                 showBackgroundLocationExplainer = true
-            hasForegroundPermission -> onAccessGranted()
+            }
+            hasForegroundPermission -> {
+                viewModel.captureLocationNow()
+                onAccessGranted()
+            }
             else -> foregroundLocationLauncher.launch(
                 arrayOf(Manifest.permission.ACCESS_FINE_LOCATION, Manifest.permission.ACCESS_COARSE_LOCATION)
             )

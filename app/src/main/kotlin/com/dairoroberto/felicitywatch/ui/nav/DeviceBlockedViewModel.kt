@@ -3,15 +3,18 @@ package com.dairoroberto.felicitywatch.ui.nav
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.dairoroberto.felicitywatch.data.repository.DeviceRoleRepository
+import com.dairoroberto.felicitywatch.domain.usecase.UpdateDeviceLocationUseCase
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.launch
+import java.time.Instant
 import javax.inject.Inject
 
 @HiltViewModel
 class DeviceBlockedViewModel @Inject constructor(
-    private val deviceRoleRepository: DeviceRoleRepository
+    private val deviceRoleRepository: DeviceRoleRepository,
+    private val updateDeviceLocationUseCase: UpdateDeviceLocationUseCase
 ) : ViewModel() {
 
     private val _isRedeeming = MutableStateFlow(false)
@@ -40,6 +43,21 @@ class DeviceBlockedViewModel @Inject constructor(
             } finally {
                 _isRedeeming.value = false
             }
+        }
+    }
+
+    /**
+     * Captura y reporta la ubicación de inmediato, sin esperar al primer
+     * ciclo del servicio de monitoreo — que en este momento (justo tras
+     * canjear el código) todavía ni arrancó, ya que EvaluateDeviceApprovalUseCase
+     * solo lo inicia una vez que la navegación sale de esta pantalla. Sin
+     * este disparo manual, el permiso quedaba concedido pero la primera
+     * ubicación real tardaba hasta que el servicio arrancara y corriera un
+     * ciclo completo.
+     */
+    fun captureLocationNow() {
+        viewModelScope.launch {
+            updateDeviceLocationUseCase.run(Instant.now())
         }
     }
 }
