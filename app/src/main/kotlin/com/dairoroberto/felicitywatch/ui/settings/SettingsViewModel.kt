@@ -16,6 +16,7 @@ import com.dairoroberto.felicitywatch.data.repository.MigrationProgress
 import com.dairoroberto.felicitywatch.data.repository.PairingCode
 import com.dairoroberto.felicitywatch.data.repository.SupabaseSyncRepository
 import com.dairoroberto.felicitywatch.domain.usecase.RunMonitoringCycleUseCase
+import com.dairoroberto.felicitywatch.domain.usecase.UpdateDeviceLocationUseCase
 import com.dairoroberto.felicitywatch.domain.usecase.describeMonitoringError
 import com.dairoroberto.felicitywatch.notification.LowVoltageAlertPlayer
 import com.dairoroberto.felicitywatch.notification.NotificationChannels
@@ -61,12 +62,14 @@ class SettingsViewModel @Inject constructor(
     private val rawResponseRecorder: RawResponseRecorder,
     private val supabaseSyncRepository: SupabaseSyncRepository,
     private val deviceRoleRepository: DeviceRoleRepository,
+    private val updateDeviceLocationUseCase: UpdateDeviceLocationUseCase,
     @ApplicationContext private val context: Context
 ) : ViewModel() {
 
     val serviceRunning: StateFlow<Boolean> = stateHolder.serviceRunning
     val lastInverterRawJson: StateFlow<String?> = stateHolder.lastInverterRawJson
     val lastBatteryRawJson: StateFlow<String?> = stateHolder.lastBatteryRawJson
+    val lastLocationError: StateFlow<String?> = updateDeviceLocationUseCase.lastError
 
     private val _isLoadingDeviceList = MutableStateFlow(false)
     val isLoadingDeviceList: StateFlow<Boolean> = _isLoadingDeviceList

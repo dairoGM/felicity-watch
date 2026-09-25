@@ -198,6 +198,20 @@ fun SettingsScreen(
         )
     }
 
+    // ACCESS_BACKGROUND_LOCATION no se puede pedir en el mismo diálogo que
+    // el permiso foreground (Android 11+ lo ignora si viene junto) — hay
+    // que mandar al usuario a Ajustes > Apps > Felicity Watch > Permisos >
+    // Ubicación > "Permitir todo el tiempo". Sin esto, LocationTracker solo
+    // puede obtener la posición mientras la app está abierta en pantalla,
+    // nunca durante el ciclo de monitoreo en segundo plano.
+    var hasBackgroundLocationPermission by remember {
+        mutableStateOf(
+            Build.VERSION.SDK_INT < Build.VERSION_CODES.Q ||
+                ContextCompat.checkSelfPermission(context, Manifest.permission.ACCESS_BACKGROUND_LOCATION) ==
+                    PackageManager.PERMISSION_GRANTED
+        )
+    }
+
     // El permiso concedido no basta: si el usuario tiene apagado el
     // servicio de ubicación de Android (GPS/red), LocationTracker jamás
     // consigue una posición y el ciclo de monitoreo lo ignora en silencio
@@ -210,6 +224,9 @@ fun SettingsScreen(
         val observer = LifecycleEventObserver { _, event ->
             if (event == Lifecycle.Event.ON_RESUME) {
                 isLocationServiceEnabled = isLocationServiceEnabled(context)
+                hasBackgroundLocationPermission = Build.VERSION.SDK_INT < Build.VERSION_CODES.Q ||
+                    ContextCompat.checkSelfPermission(context, Manifest.permission.ACCESS_BACKGROUND_LOCATION) ==
+                        PackageManager.PERMISSION_GRANTED
             }
         }
         lifecycleOwner.lifecycle.addObserver(observer)
@@ -314,6 +331,13 @@ fun SettingsScreen(
                         isLocationServiceEnabled = isLocationServiceEnabled,
                         onOpenLocationSettings = {
                             context.startActivity(Intent(Settings.ACTION_LOCATION_SOURCE_SETTINGS))
+                        },
+                        hasBackgroundLocationPermission = hasBackgroundLocationPermission,
+                        onOpenAppLocationSettings = {
+                            context.startActivity(
+                                Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS)
+                                    .setData(Uri.fromParts("package", context.packageName, null))
+                            )
                         },
                         viewModel = viewModel
                     )
@@ -457,6 +481,8 @@ private fun LazyListScope.systemTab(
     onRequestLocationPermission: () -> Unit,
     isLocationServiceEnabled: Boolean,
     onOpenLocationSettings: () -> Unit,
+    hasBackgroundLocationPermission: Boolean,
+    onOpenAppLocationSettings: () -> Unit,
     viewModel: SettingsViewModel
 ) {
     item {
@@ -513,7 +539,21 @@ private fun LazyListScope.systemTab(
                 style = MaterialTheme.typography.bodySmall,
                 color = colors.textMid
             )
-            if (hasLocationPermission && isLocationServiceEnabled) {
+            if (hasLocationPermission && isLocationServiceEnabled && !hasBackgroundLocationPermission) {
+                Text(
+                    "Falta permitir la ubicación \"todo el tiempo\": el ciclo de monitoreo corre en " +
+                        "segundo plano, y sin ese permiso Android no deja obtener la posición cuando " +
+                        "la app no está abierta en pantalla.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = colors.error,
+                    modifier = Modifier.padding(top = 6.dp)
+                )
+                ActionButton(
+                    text = "Abrir ajustes de permisos",
+                    onClick = onOpenAppLocationSettings,
+                    modifier = Modifier.padding(top = SECTION_CONTENT_SPACING)
+                )
+            } else if (hasLocationPermission && isLocationServiceEnabled) {
                 Row(
                     verticalAlignment = Alignment.CenterVertically,
                     modifier = Modifier.padding(top = SECTION_CONTENT_SPACING)
@@ -525,6 +565,15 @@ private fun LazyListScope.systemTab(
                         fontWeight = FontWeight.Medium,
                         color = colors.green,
                         modifier = Modifier.padding(start = 8.dp)
+                    )
+                }
+                val lastLocationError by viewModel.lastLocationError.collectAsState()
+                lastLocationError?.let { error ->
+                    Text(
+                        "Último intento de reportar ubicación falló: $error",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = colors.error,
+                        modifier = Modifier.padding(top = 6.dp)
                     )
                 }
             } else if (hasLocationPermission) {

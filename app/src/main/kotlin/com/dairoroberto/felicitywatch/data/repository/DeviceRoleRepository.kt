@@ -255,10 +255,17 @@ class DeviceRoleRepository @Inject constructor(
      * ciclo de monitoreo normal (ver [UpdateDeviceLocationUseCase], que
      * modera la frecuencia real de captura para no gastar batería en cada
      * ciclo). */
-    suspend fun updateOwnLocation(latitude: Double, longitude: Double) {
+    /**
+     * Devuelve null si se guardó bien, o un mensaje de error legible si no —
+     * quien llama decide qué hacer con eso (UpdateDeviceLocationUseCase lo
+     * expone en un StateFlow para que Ajustes > Sistema pueda mostrar por
+     * qué el mapa no recibe datos de este dispositivo, en vez de fallar en
+     * silencio como antes).
+     */
+    suspend fun updateOwnLocation(latitude: Double, longitude: Double): String? {
         val deviceId = appPreferences.supabaseDeviceId()
-        try {
-            api.updateAccountDevice(
+        return try {
+            val response = api.updateAccountDevice(
                 deviceIdFilter = "eq.$deviceId",
                 prefer = "return=minimal",
                 updates = mapOf(
@@ -267,8 +274,13 @@ class DeviceRoleRepository @Inject constructor(
                     "location_updated_at" to DateTimeFormatter.ISO_INSTANT.format(Instant.now())
                 )
             )
+            if (response.isSuccessful) {
+                null
+            } else {
+                "Supabase rechazó la actualización (HTTP ${response.code()}): ${response.errorBody()?.string()}"
+            }
         } catch (e: Exception) {
-            // Best-effort: no debe afectar el ciclo de monitoreo.
+            "Error de red al reportar ubicación: ${e.message}"
         }
     }
 

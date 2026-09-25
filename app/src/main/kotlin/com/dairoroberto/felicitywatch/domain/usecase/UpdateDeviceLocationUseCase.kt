@@ -2,6 +2,8 @@ package com.dairoroberto.felicitywatch.domain.usecase
 
 import com.dairoroberto.felicitywatch.data.local.LocationTracker
 import com.dairoroberto.felicitywatch.data.repository.DeviceRoleRepository
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
 import java.time.Duration
 import java.time.Instant
 import javax.inject.Inject
@@ -22,14 +24,30 @@ class UpdateDeviceLocationUseCase @Inject constructor(
 ) {
     private var lastCaptureAt: Instant? = null
 
+    /**
+     * Último resultado del intento de reportar ubicación: null = se guardó
+     * bien (o todavía no se intentó), o un mensaje legible de por qué no —
+     * lo consume Ajustes > Sistema para no fallar en silencio como antes.
+     */
+    private val _lastError = MutableStateFlow<String?>(null)
+    val lastError: StateFlow<String?> = _lastError
+
     suspend fun run(now: Instant) {
-        if (!locationTracker.hasLocationPermission()) return
+        if (!locationTracker.hasLocationPermission()) {
+            _lastError.value = "Falta el permiso de ubicación."
+            return
+        }
 
         val last = lastCaptureAt
         if (last != null && Duration.between(last, now) < MIN_INTERVAL) return
 
-        val location = locationTracker.getCurrentLocation() ?: return
-        deviceRoleRepository.updateOwnLocation(location.latitude, location.longitude)
+        val location = locationTracker.getCurrentLocation()
+        if (location == null) {
+            _lastError.value = "No se pudo obtener la ubicación (revisa que el GPS/ubicación del sistema esté encendido)."
+            return
+        }
+
+        _lastError.value = deviceRoleRepository.updateOwnLocation(location.latitude, location.longitude)
         lastCaptureAt = now
     }
 
