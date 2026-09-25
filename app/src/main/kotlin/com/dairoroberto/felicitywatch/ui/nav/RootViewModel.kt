@@ -44,9 +44,16 @@ class RootViewModel @Inject constructor(
         if (_onboardingCompleted.value) checkDeviceAccess()
     }
 
-    fun checkDeviceAccess() {
+    /**
+     * [showCheckingState] se omite en las revalidaciones de fondo (cada
+     * ON_RESUME, ver FelicityWatchNavHost) para no tapar la pantalla con un
+     * spinner cada vez que el usuario vuelve a la app — solo se usa en el
+     * chequeo inicial y tras canjear un código, donde sí hay una pantalla de
+     * espera dedicada.
+     */
+    fun checkDeviceAccess(showCheckingState: Boolean = true) {
         viewModelScope.launch {
-            _deviceAccessState.value = DeviceAccessState.Checking
+            if (showCheckingState) _deviceAccessState.value = DeviceAccessState.Checking
             _deviceAccessState.value = when (evaluateDeviceApprovalUseCase.evaluate()) {
                 DeviceAccessDecision.Allowed -> DeviceAccessState.Allowed
                 DeviceAccessDecision.Blocked -> DeviceAccessState.Blocked

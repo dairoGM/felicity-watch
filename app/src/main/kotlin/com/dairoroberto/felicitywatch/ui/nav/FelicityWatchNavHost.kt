@@ -23,6 +23,7 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -31,6 +32,9 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalLifecycleOwner
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.navigation.NavGraph.Companion.findStartDestination
 import androidx.navigation.compose.NavHost
@@ -89,6 +93,24 @@ fun FelicityWatchNavHost(
     if (!onboardingCompleted) {
         OnboardingScreen(onFinished = { rootViewModel.completeOnboarding() })
         return
+    }
+
+    // Un cliente ya aprobado puede ser revocado por la master en cualquier
+    // momento, pero EvaluateDeviceApprovalUseCase solo se corría una vez al
+    // arrancar — si la app quedaba abierta, seguía funcionando con
+    // normalidad pese a la revocación hasta que el usuario la cerraba y
+    // volvía a abrir. Re-chequear en cada ON_RESUME cubre el caso real
+    // (cambiar de app y volver, o directamente reabrir) sin necesidad de
+    // pollear en segundo plano.
+    val lifecycleOwner = LocalLifecycleOwner.current
+    DisposableEffect(lifecycleOwner) {
+        val observer = LifecycleEventObserver { _, event ->
+            if (event == Lifecycle.Event.ON_RESUME) {
+                rootViewModel.checkDeviceAccess(showCheckingState = false)
+            }
+        }
+        lifecycleOwner.lifecycle.addObserver(observer)
+        onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
     }
 
     val deviceAccessState by rootViewModel.deviceAccessState.collectAsState()

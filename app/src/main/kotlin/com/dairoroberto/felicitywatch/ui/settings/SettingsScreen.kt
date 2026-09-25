@@ -4,6 +4,7 @@ import android.Manifest
 import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
+import android.location.LocationManager
 import android.net.Uri
 import android.os.Build
 import android.os.PowerManager
@@ -11,6 +12,10 @@ import android.provider.Settings
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.core.content.ContextCompat
+import androidx.compose.runtime.DisposableEffect
+import androidx.compose.ui.platform.LocalLifecycleOwner
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -193,6 +198,24 @@ fun SettingsScreen(
         )
     }
 
+    // El permiso concedido no basta: si el usuario tiene apagado el
+    // servicio de ubicación de Android (GPS/red), LocationTracker jamás
+    // consigue una posición y el ciclo de monitoreo lo ignora en silencio
+    // (best-effort). Se re-chequea al volver a la pantalla porque el
+    // usuario puede prender/apagar esto desde el panel rápido de Android,
+    // no solo desde el botón de abajo.
+    var isLocationServiceEnabled by remember { mutableStateOf(isLocationServiceEnabled(context)) }
+    val lifecycleOwner = LocalLifecycleOwner.current
+    DisposableEffect(lifecycleOwner) {
+        val observer = LifecycleEventObserver { _, event ->
+            if (event == Lifecycle.Event.ON_RESUME) {
+                isLocationServiceEnabled = isLocationServiceEnabled(context)
+            }
+        }
+        lifecycleOwner.lifecycle.addObserver(observer)
+        onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
+    }
+
     if (showLogoutConfirm) {
         AlertDialog(
             onDismissRequest = { showLogoutConfirm = false },
@@ -288,6 +311,10 @@ fun SettingsScreen(
                         },
                         hasLocationPermission = hasLocationPermission,
                         onRequestLocationPermission = requestLocationPermission,
+                        isLocationServiceEnabled = isLocationServiceEnabled,
+                        onOpenLocationSettings = {
+                            context.startActivity(Intent(Settings.ACTION_LOCATION_SOURCE_SETTINGS))
+                        },
                         viewModel = viewModel
                     )
                     "Dispositivos" -> devicesTab(viewModel = viewModel)
@@ -428,6 +455,8 @@ private fun LazyListScope.systemTab(
     onRequestBatteryExclusion: () -> Unit,
     hasLocationPermission: Boolean,
     onRequestLocationPermission: () -> Unit,
+    isLocationServiceEnabled: Boolean,
+    onOpenLocationSettings: () -> Unit,
     viewModel: SettingsViewModel
 ) {
     item {
@@ -484,7 +513,7 @@ private fun LazyListScope.systemTab(
                 style = MaterialTheme.typography.bodySmall,
                 color = colors.textMid
             )
-            if (hasLocationPermission) {
+            if (hasLocationPermission && isLocationServiceEnabled) {
                 Row(
                     verticalAlignment = Alignment.CenterVertically,
                     modifier = Modifier.padding(top = SECTION_CONTENT_SPACING)
@@ -498,6 +527,18 @@ private fun LazyListScope.systemTab(
                         modifier = Modifier.padding(start = 8.dp)
                     )
                 }
+            } else if (hasLocationPermission) {
+                Text(
+                    "El permiso está concedido, pero el servicio de ubicación de este teléfono está apagado. Actívalo para que se pueda reportar la posición.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = colors.error,
+                    modifier = Modifier.padding(top = 6.dp)
+                )
+                ActionButton(
+                    text = "Activar ubicación del sistema",
+                    onClick = onOpenLocationSettings,
+                    modifier = Modifier.padding(top = SECTION_CONTENT_SPACING)
+                )
             } else {
                 ActionButton(
                     text = "Habilitar ubicación",
@@ -1551,6 +1592,12 @@ private fun SectionCard(title: String, content: @Composable () -> Unit) {
 private fun isIgnoringBatteryOptimizations(context: Context): Boolean {
     val powerManager = context.getSystemService(Context.POWER_SERVICE) as PowerManager
     return powerManager.isIgnoringBatteryOptimizations(context.packageName)
+}
+
+private fun isLocationServiceEnabled(context: Context): Boolean {
+    val locationManager = context.getSystemService(Context.LOCATION_SERVICE) as LocationManager
+    return locationManager.isProviderEnabled(LocationManager.GPS_PROVIDER) ||
+        locationManager.isProviderEnabled(LocationManager.NETWORK_PROVIDER)
 }
 
 private fun requestIgnoreBatteryOptimizations(context: Context) {
