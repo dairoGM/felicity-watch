@@ -36,10 +36,19 @@
             </intent-filter>
         </activity>
 
+        <!-- Sin tipo "location": Android 14+ exige que el permiso de ubicación
+             ya esté concedido ANTES de poder arrancar un foreground service
+             que declare ese tipo, y si falta lanza una SecurityException que
+             mata el proceso entero — incluido el monitoreo del inversor, que
+             no tiene nada que ver con ubicación. La ubicación se sigue
+             reportando igual desde este servicio (best-effort, protegida por
+             LocationTracker.hasLocationPermission()); solo se omite la
+             declaración formal del tipo para que el servicio principal nunca
+             dependa de un permiso opcional para poder arrancar. -->
         <service
             android:name=".service.MonitoringForegroundService"
             android:exported="false"
-            android:foregroundServiceType="dataSync|location" />
+            android:foregroundServiceType="dataSync" />
 
         <receiver
             android:name=".service.BootCompletedReceiver"
