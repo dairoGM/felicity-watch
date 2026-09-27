@@ -127,13 +127,32 @@ class AppPreferences @Inject constructor(@ApplicationContext private val context
         context.dataStore.edit { it[KEY_PV_ALERT_WINDOW_END_HOUR] = hour }
     }
 
-    /** Identificador estable de esta instalación — separa las filas de este
-     * teléfono de las de otro dispositivo (o una reinstalación) dentro de
-     * la misma tabla de Supabase. Se genera una sola vez y no cambia. */
+    /**
+     * Identificador estable de este TELÉFONO (no de esta instalación) — separa
+     * las filas de un dispositivo de las de otro en la misma tabla de
+     * Supabase. Usa [android.provider.Settings.Secure.ANDROID_ID], que
+     * Android asigna por dispositivo+cuenta+firma de la app y sobrevive a
+     * desinstalar/reinstalar (a diferencia de un UUID generado en la propia
+     * app, que se perdía junto con el resto de los datos al desinstalar —
+     * el IMEI no es una alternativa: Android 10+ lo bloquea para cualquier
+     * app que no sea del sistema, sin importar los permisos declarados).
+     * Solo cambia si el teléfono se resetea de fábrica.
+     *
+     * Se cachea en DataStore para no repetir la consulta al ContentResolver
+     * en cada llamada, y porque un dispositivo aprobado ANTES de este cambio
+     * ya tiene guardado el UUID viejo con el que fue aprobado — debe seguir
+     * usando ese mismo valor (coincide con su fila existente en Supabase)
+     * hasta que él mismo se desinstale y reinstale, momento en el que ya
+     * generará el ANDROID_ID estable desde cero.
+     */
     suspend fun supabaseDeviceId(): String {
         val existing = context.dataStore.data.map { it[KEY_SUPABASE_DEVICE_ID] }.first()
         if (existing != null) return existing
-        val generated = java.util.UUID.randomUUID().toString()
+        val androidId = android.provider.Settings.Secure.getString(
+            context.contentResolver,
+            android.provider.Settings.Secure.ANDROID_ID
+        )
+        val generated = if (androidId.isNullOrBlank()) java.util.UUID.randomUUID().toString() else androidId
         context.dataStore.edit { it[KEY_SUPABASE_DEVICE_ID] = generated }
         return generated
     }
