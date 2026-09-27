@@ -2,6 +2,7 @@ package com.dairoroberto.felicitywatch.data.repository
 
 import com.dairoroberto.felicitywatch.data.local.AppPreferences
 import com.dairoroberto.felicitywatch.data.remote.SupabaseApiService
+import com.dairoroberto.felicitywatch.data.remote.dto.AccountDeviceApprovalDto
 import com.dairoroberto.felicitywatch.data.remote.dto.AccountDeviceDto
 import com.dairoroberto.felicitywatch.data.remote.dto.AccountDeviceStatusDto
 import com.dairoroberto.felicitywatch.data.remote.dto.DesktopPairingDto
@@ -68,11 +69,11 @@ class DeviceRoleRepository @Inject constructor(
      */
     suspend fun claimMaster(): ClaimMasterResult {
         val deviceId = appPreferences.supabaseDeviceId()
-        val response = api.createAccountDevice(
+        val response = api.upsertAccountDeviceApproval(
             onConflict = "device_id",
             prefer = "resolution=merge-duplicates,return=minimal",
             device = listOf(
-                AccountDeviceDto(
+                AccountDeviceApprovalDto(
                     deviceId = deviceId,
                     role = "master",
                     approvedAt = DateTimeFormatter.ISO_INSTANT.format(Instant.now())
@@ -158,11 +159,11 @@ class DeviceRoleRepository @Inject constructor(
         )
 
         val deviceId = appPreferences.supabaseDeviceId()
-        val approveResponse = api.createAccountDevice(
+        val approveResponse = api.upsertAccountDeviceApproval(
             onConflict = "device_id",
             prefer = "resolution=merge-duplicates,return=minimal",
             device = listOf(
-                AccountDeviceDto(
+                AccountDeviceApprovalDto(
                     deviceId = deviceId,
                     role = "client",
                     approvedAt = DateTimeFormatter.ISO_INSTANT.format(Instant.now())

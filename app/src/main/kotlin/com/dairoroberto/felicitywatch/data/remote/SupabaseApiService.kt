@@ -1,5 +1,6 @@
 package com.dairoroberto.felicitywatch.data.remote
 
+import com.dairoroberto.felicitywatch.data.remote.dto.AccountDeviceApprovalDto
 import com.dairoroberto.felicitywatch.data.remote.dto.AccountDeviceDto
 import com.dairoroberto.felicitywatch.data.remote.dto.AccountDeviceStatusDto
 import com.dairoroberto.felicitywatch.data.remote.dto.DesktopPairingDto
@@ -73,6 +74,20 @@ interface SupabaseApiService {
         @Query("on_conflict") onConflict: String,
         @Header("Prefer") prefer: String,
         @Body device: List<AccountDeviceDto>
+    ): Response<Unit>
+
+    /**
+     * Mismo upsert que [createAccountDevice] pero sin `display_name` en el
+     * payload — usado al aprobar/reclamar (claimMaster, redeemPairingPin),
+     * donde el conflicto puede ser un dispositivo ya conocido (y ya
+     * renombrado por el master). Enviar `display_name: null` en ese caso lo
+     * borraría en el UPDATE que hace `resolution=merge-duplicates`.
+     */
+    @POST("rest/v1/account_devices")
+    suspend fun upsertAccountDeviceApproval(
+        @Query("on_conflict") onConflict: String,
+        @Header("Prefer") prefer: String,
+        @Body device: List<AccountDeviceApprovalDto>
     ): Response<Unit>
 
     /** Estado actual (rol, aprobación, revocación) de cualquier device_id, o de la master de la cuenta. */
