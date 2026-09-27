@@ -1,6 +1,7 @@
 package com.dairoroberto.felicitywatch.ui.nav
 
 import androidx.activity.compose.BackHandler
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material.icons.Icons
@@ -117,7 +118,9 @@ fun FelicityWatchNavHost(
     when (deviceAccessState) {
         DeviceAccessState.Checking -> {
             androidx.compose.foundation.layout.Box(
-                modifier = Modifier.fillMaxSize(),
+                modifier = Modifier
+                    .fillMaxSize()
+                    .background(androidx.compose.material3.MaterialTheme.colorScheme.background),
                 contentAlignment = androidx.compose.ui.Alignment.Center
             ) {
                 androidx.compose.material3.CircularProgressIndicator()
