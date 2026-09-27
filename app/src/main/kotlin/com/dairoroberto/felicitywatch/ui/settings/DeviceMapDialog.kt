@@ -47,6 +47,13 @@ fun DeviceMapDialog(devices: List<AccountDeviceInfo>, onDismiss: () -> Unit) {
     }
 }
 
+// Centro aproximado de Cuba (Ciego de Ávila) y zoom que encuadra toda la
+// isla — todos los dispositivos de esta cuenta están ahí, así que no tiene
+// sentido arrancar en el (0,0) del Atlántico cuando ninguno tiene ubicación
+// todavía.
+private val CUBA_CENTER = GeoPoint(21.5, -79.5)
+private const val CUBA_ZOOM = 7.0
+
 @Composable
 private fun DeviceMapView(devices: List<AccountDeviceInfo>, context: Context, modifier: Modifier = Modifier) {
     val located = remember(devices) { devices.filter { it.latitude != null && it.longitude != null } }
@@ -56,12 +63,13 @@ private fun DeviceMapView(devices: List<AccountDeviceInfo>, context: Context, mo
         MapView(context).apply {
             setTileSource(TileSourceFactory.MAPNIK)
             setMultiTouchControls(true)
-            controller.setZoom(if (located.size == 1) 15.0 else 5.0)
             val first = located.firstOrNull()
             if (first != null) {
+                controller.setZoom(if (located.size == 1) 15.0 else 5.0)
                 controller.setCenter(GeoPoint(first.latitude!!, first.longitude!!))
             } else {
-                controller.setCenter(GeoPoint(0.0, 0.0))
+                controller.setZoom(CUBA_ZOOM)
+                controller.setCenter(CUBA_CENTER)
             }
         }
     }

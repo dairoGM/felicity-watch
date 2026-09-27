@@ -40,11 +40,25 @@ class RunMonitoringCycleUseCase @Inject constructor(
     private val notifyApplianceChangeUseCase: NotifyApplianceChangeUseCase,
     private val notifyLowVoltageUseCase: NotifyLowVoltageUseCase,
     private val deviceRoleRepository: DeviceRoleRepository,
-    private val updateDeviceLocationUseCase: UpdateDeviceLocationUseCase
+    private val updateDeviceLocationUseCase: UpdateDeviceLocationUseCase,
+    private val evaluateDeviceApprovalUseCase: EvaluateDeviceApprovalUseCase
 ) {
     suspend fun run(): SystemReading {
         if (!credentialsStore.hasFsolarCredentials()) {
             throw FelicityCredentialsMissingException()
+        }
+
+        // Revalida en CADA ciclo (misma cadencia que la consulta a
+        // Felicity), no solo al reabrir la app — así, si la master revoca o
+        // elimina a este cliente, se detecta en la siguiente lectura
+        // programada, sin depender de que el usuario minimice y vuelva a
+        // abrir la app. EvaluateDeviceApprovalUseCase ya escribe
+        // clientApprovalConfirmed=false al detectarlo, que RootViewModel
+        // observa para sacar al usuario de inmediato a la pantalla de
+        // código. Se corta ANTES de consultar Felicity: sin acceso, no
+        // tiene sentido gastar esa lectura.
+        if (evaluateDeviceApprovalUseCase.evaluate() == DeviceAccessDecision.Blocked) {
+            throw DeviceAccessRevokedException()
         }
 
         val reading = felicityRepository.fetchLatestReading()
@@ -92,7 +106,7 @@ class RunMonitoringCycleUseCase @Inject constructor(
         // que touchLastSeen: sin permiso de ubicación o sin GPS/red
         // disponible, simplemente no actualiza nada este ciclo.
         try {
-            updateDeviceLocationUseCase.run(now)
+            updateDeviceLocationUseCase.run()
         } catch (e: Exception) {
             // Ignorado a propósito.
         }

@@ -8,6 +8,7 @@ import android.os.IBinder
 import androidx.core.app.NotificationCompat
 import com.dairoroberto.felicitywatch.data.local.AppPreferences
 import com.dairoroberto.felicitywatch.data.local.CredentialsStore
+import com.dairoroberto.felicitywatch.domain.usecase.DeviceAccessRevokedException
 import com.dairoroberto.felicitywatch.domain.usecase.RunMonitoringCycleUseCase
 import com.dairoroberto.felicitywatch.domain.usecase.describeMonitoringError
 import com.dairoroberto.felicitywatch.notification.NotificationChannels
@@ -109,6 +110,13 @@ class MonitoringForegroundService : Service() {
             runMonitoringCycleUseCase.run()
             lastReadingAt = Instant.now()
             updatePersistentNotification("Vigilando el inversor · última lectura hace 0 s")
+        } catch (e: DeviceAccessRevokedException) {
+            // No es una falla de conexión real — no debe sumar al contador
+            // de fallos consecutivos ni disparar el aviso de "sin conexión".
+            // RootViewModel ya reacciona al cambio de clientApprovalConfirmed
+            // (escrito dentro del propio ciclo) y saca al usuario a la
+            // pantalla de código; aquí solo se refleja en la notificación.
+            updatePersistentNotification("Acceso revocado por el dispositivo principal")
         } catch (e: Exception) {
             stateHolder.reportFailure(describeMonitoringError(e))
             val failures = stateHolder.consecutiveFailures.value

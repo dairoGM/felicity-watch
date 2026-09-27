@@ -8,7 +8,6 @@ import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.launch
-import java.time.Instant
 import javax.inject.Inject
 
 @HiltViewModel
@@ -53,11 +52,14 @@ class DeviceBlockedViewModel @Inject constructor(
      * solo lo inicia una vez que la navegación sale de esta pantalla. Sin
      * este disparo manual, el permiso quedaba concedido pero la primera
      * ubicación real tardaba hasta que el servicio arrancara y corriera un
-     * ciclo completo.
+     * ciclo completo. Si este intento falla (permiso recién concedido, GPS
+     * lento), no queda perdido: al no haber capturado con éxito todavía, no
+     * hay throttle que lo bloquee, así que el primer ciclo del servicio lo
+     * reintenta sin demora.
      */
     fun captureLocationNow() {
         viewModelScope.launch {
-            updateDeviceLocationUseCase.run(Instant.now())
+            updateDeviceLocationUseCase.run()
         }
     }
 }
