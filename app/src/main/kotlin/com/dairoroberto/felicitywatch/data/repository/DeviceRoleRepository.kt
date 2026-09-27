@@ -237,6 +237,13 @@ class DeviceRoleRepository @Inject constructor(
         )
     }
 
+    /** Borra el registro por completo — a diferencia de revocar, no queda
+     * rastro: si el mismo teléfono vuelve a canjear un código, entra como
+     * un dispositivo nuevo (sin nombre ni historial previos). */
+    suspend fun deleteDevice(deviceId: String) {
+        api.deleteAccountDevice(deviceIdFilter = "eq.$deviceId")
+    }
+
     /** Actualiza el "visto por última vez" de este dispositivo — llamada
      * best-effort desde el ciclo de monitoreo normal. */
     suspend fun touchLastSeen() {

@@ -510,6 +510,14 @@ class SettingsViewModel @Inject constructor(
         }
     }
 
+    fun deleteDevice(deviceId: String) {
+        viewModelScope.launch {
+            deviceRoleRepository.deleteDevice(deviceId)
+            loadAccountDevices()
+            emit("Dispositivo eliminado")
+        }
+    }
+
     /** Diagnóstico sin USB: copia la última respuesta cruda de Felicity para pegarla donde haga falta. */
     fun copyRawJsonToClipboard(label: String, json: String?) {
         if (json.isNullOrBlank()) {

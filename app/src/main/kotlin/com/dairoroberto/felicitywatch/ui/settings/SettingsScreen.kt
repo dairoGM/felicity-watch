@@ -40,6 +40,7 @@ import androidx.compose.material.icons.filled.CloudSync
 import androidx.compose.material.icons.filled.DarkMode
 import androidx.compose.material.icons.filled.DeleteForever
 import androidx.compose.material.icons.filled.Logout
+import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.Notifications
 import androidx.compose.material.icons.filled.RecordVoiceOver
 import androidx.compose.material.icons.filled.Refresh
@@ -50,10 +51,13 @@ import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.FilterChipDefaults
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
@@ -1133,8 +1137,69 @@ private fun LazyListScope.systemTab(
  * TabRow ya se oculta por completo para un cliente, ver [SettingsScreen]):
  * marcar/confirmar el rol de este dispositivo, generar códigos de acceso
  * (celular cliente o escritorio) y administrar los dispositivos registrados.
+ *
+ * El listado va PRIMERO: es lo que se consulta día a día (quién está
+ * conectado, revocar/renombrar/eliminar), mientras que generar un código o
+ * cambiar el rol de este teléfono son acciones puntuales — antes quedaban
+ * arriba y el listado al final, obligando a bajar por 3 tarjetas de
+ * configuración para ver algo tan básico como quién está registrado.
  */
 private fun LazyListScope.devicesTab(viewModel: SettingsViewModel) {
+    item {
+        val colors = LocalFelicityColors.current
+        val isMaster by viewModel.isMasterDevice.collectAsState()
+        if (!isMaster) return@item
+
+        val devices by viewModel.accountDevices.collectAsState()
+        val loadingDevices by viewModel.isLoadingDevices.collectAsState()
+        var showMap by remember { mutableStateOf(false) }
+
+        // Refresca sola mientras esta pestaña está abierta — antes solo
+        // cargaba una vez al entrar, así que un cambio hecho desde otro
+        // dispositivo (o revocar/aprobar en la misma sesión) no se veía
+        // hasta salir del tab y volver a entrar.
+        LaunchedEffect(Unit) {
+            while (true) {
+                viewModel.loadAccountDevices()
+                kotlinx.coroutines.delay(15_000)
+            }
+        }
+
+        if (showMap) {
+            DeviceMapDialog(devices = devices, onDismiss = { showMap = false })
+        }
+
+        SectionCard(title = "Dispositivos registrados") {
+            if (loadingDevices) {
+                LinearProgressIndicator(modifier = Modifier.fillMaxWidth())
+            } else if (devices.isEmpty()) {
+                Text(
+                    "Todavía no hay otros dispositivos registrados.",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = colors.textLow
+                )
+            } else {
+                val locatedCount = devices.count { it.latitude != null && it.longitude != null }
+                ActionButton(
+                    text = if (locatedCount > 0) "Ver mapa ($locatedCount)" else "Ver mapa (sin ubicaciones aún)",
+                    outlined = true,
+                    enabled = locatedCount > 0,
+                    onClick = { showMap = true },
+                    modifier = Modifier.padding(bottom = SECTION_CONTENT_SPACING)
+                )
+                devices.forEach { device ->
+                    AccountDeviceRow(
+                        device = device,
+                        colors = colors,
+                        onRename = { name -> viewModel.renameDevice(device.deviceId, name) },
+                        onRevoke = { viewModel.revokeDevice(device.deviceId) },
+                        onDelete = { viewModel.deleteDevice(device.deviceId) }
+                    )
+                }
+            }
+        }
+    }
+
     item {
         val colors = LocalFelicityColors.current
         val isMaster by viewModel.isMasterDevice.collectAsState()
@@ -1297,59 +1362,6 @@ private fun LazyListScope.devicesTab(viewModel: SettingsViewModel) {
         }
     }
 
-    item {
-        val colors = LocalFelicityColors.current
-        val isMaster by viewModel.isMasterDevice.collectAsState()
-        if (!isMaster) return@item
-
-        val devices by viewModel.accountDevices.collectAsState()
-        val loadingDevices by viewModel.isLoadingDevices.collectAsState()
-        var showMap by remember { mutableStateOf(false) }
-
-        // Refresca sola mientras esta pestaña está abierta — antes solo
-        // cargaba una vez al entrar, así que un cambio hecho desde otro
-        // dispositivo (o revocar/aprobar en la misma sesión) no se veía
-        // hasta salir del tab y volver a entrar.
-        LaunchedEffect(Unit) {
-            while (true) {
-                viewModel.loadAccountDevices()
-                kotlinx.coroutines.delay(15_000)
-            }
-        }
-
-        if (showMap) {
-            DeviceMapDialog(devices = devices, onDismiss = { showMap = false })
-        }
-
-        SectionCard(title = "Dispositivos registrados") {
-            if (loadingDevices) {
-                LinearProgressIndicator(modifier = Modifier.fillMaxWidth())
-            } else if (devices.isEmpty()) {
-                Text(
-                    "Todavía no hay otros dispositivos registrados.",
-                    style = MaterialTheme.typography.labelSmall,
-                    color = colors.textLow
-                )
-            } else {
-                val locatedCount = devices.count { it.latitude != null && it.longitude != null }
-                ActionButton(
-                    text = if (locatedCount > 0) "Ver mapa ($locatedCount)" else "Ver mapa (sin ubicaciones aún)",
-                    outlined = true,
-                    enabled = locatedCount > 0,
-                    onClick = { showMap = true },
-                    modifier = Modifier.padding(bottom = SECTION_CONTENT_SPACING)
-                )
-                devices.forEach { device ->
-                    AccountDeviceRow(
-                        device = device,
-                        colors = colors,
-                        onRename = { name -> viewModel.renameDevice(device.deviceId, name) },
-                        onRevoke = { viewModel.revokeDevice(device.deviceId) }
-                    )
-                }
-            }
-        }
-    }
 }
 
 /** Cuenta regresiva "Expira en 1:47" hasta [expiresAt], se actualiza cada segundo. */
@@ -1554,11 +1566,13 @@ private fun AccountDeviceRow(
     device: com.dairoroberto.felicitywatch.data.repository.AccountDeviceInfo,
     colors: com.dairoroberto.felicitywatch.ui.theme.FelicitySemanticColors,
     onRename: (String) -> Unit,
-    onRevoke: () -> Unit
+    onRevoke: () -> Unit,
+    onDelete: () -> Unit
 ) {
     var editingName by remember(device.deviceId) { mutableStateOf(false) }
     var nameInput by remember(device.deviceId) { mutableStateOf(device.displayName ?: "") }
     var showRevokeConfirm by remember { mutableStateOf(false) }
+    var showDeleteConfirm by remember { mutableStateOf(false) }
 
     if (showRevokeConfirm) {
         AlertDialog(
@@ -1570,6 +1584,27 @@ private fun AccountDeviceRow(
             },
             dismissButton = {
                 TextButton(onClick = { showRevokeConfirm = false }) { Text("Cancelar") }
+            }
+        )
+    }
+
+    if (showDeleteConfirm) {
+        AlertDialog(
+            onDismissRequest = { showDeleteConfirm = false },
+            title = { Text("¿Eliminar este registro?") },
+            text = {
+                Text(
+                    "Se borra por completo, incluido el nombre. Si este teléfono vuelve a " +
+                        "canjear un código, entrará como un dispositivo nuevo."
+                )
+            },
+            confirmButton = {
+                TextButton(onClick = { showDeleteConfirm = false; onDelete() }) {
+                    Text("Eliminar", color = colors.error)
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showDeleteConfirm = false }) { Text("Cancelar") }
             }
         )
     }
@@ -1612,10 +1647,28 @@ private fun AccountDeviceRow(
                     onRename(nameInput)
                 }) { Text("Guardar") }
             } else {
-                TextButton(onClick = { editingName = true }) { Text("Renombrar") }
-                if (device.role != "master" && !device.revoked) {
-                    TextButton(onClick = { showRevokeConfirm = true }) {
-                        Text("Revocar", color = colors.error)
+                var showMenu by remember { mutableStateOf(false) }
+                Box {
+                    IconButton(onClick = { showMenu = true }) {
+                        Icon(Icons.Default.MoreVert, contentDescription = "Más opciones", tint = colors.textLow)
+                    }
+                    DropdownMenu(expanded = showMenu, onDismissRequest = { showMenu = false }) {
+                        DropdownMenuItem(
+                            text = { Text("Renombrar") },
+                            onClick = { showMenu = false; editingName = true }
+                        )
+                        if (device.role != "master" && !device.revoked) {
+                            DropdownMenuItem(
+                                text = { Text("Revocar", color = colors.error) },
+                                onClick = { showMenu = false; showRevokeConfirm = true }
+                            )
+                        }
+                        if (device.role != "master") {
+                            DropdownMenuItem(
+                                text = { Text("Eliminar", color = colors.error) },
+                                onClick = { showMenu = false; showDeleteConfirm = true }
+                            )
+                        }
                     }
                 }
             }

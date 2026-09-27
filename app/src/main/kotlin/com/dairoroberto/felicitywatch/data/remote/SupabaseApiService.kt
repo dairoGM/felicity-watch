@@ -7,6 +7,7 @@ import com.dairoroberto.felicitywatch.data.remote.dto.DesktopPairingDto
 import com.dairoroberto.felicitywatch.data.remote.dto.SupabasePowerReadingDto
 import retrofit2.Response
 import retrofit2.http.Body
+import retrofit2.http.DELETE
 import retrofit2.http.GET
 import retrofit2.http.Header
 import retrofit2.http.PATCH
@@ -104,5 +105,18 @@ interface SupabaseApiService {
         @Query("device_id") deviceIdFilter: String,
         @Header("Prefer") prefer: String,
         @Body updates: Map<String, @JvmSuppressWildcards Any?>
+    ): Response<Unit>
+
+    /**
+     * Borra por completo el registro de un dispositivo cliente — a
+     * diferencia de revocar (que solo marca `revoked=true` y conserva la
+     * fila para poder re-aprobarlo con el mismo nombre), esto elimina la
+     * fila entera. Si ese mismo teléfono vuelve a canjear un código después,
+     * entra como un dispositivo nuevo sin nombre ni historial previos.
+     */
+    @DELETE("rest/v1/account_devices")
+    suspend fun deleteAccountDevice(
+        @Query("device_id") deviceIdFilter: String,
+        @Header("Prefer") prefer: String = "return=minimal"
     ): Response<Unit>
 }
