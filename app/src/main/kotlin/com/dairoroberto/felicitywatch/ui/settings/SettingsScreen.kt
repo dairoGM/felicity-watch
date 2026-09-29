@@ -1110,6 +1110,11 @@ private fun LazyListScope.systemTab(
     item {
         val colors = LocalFelicityColors.current
         val isMaster by viewModel.isMasterDevice.collectAsState()
+        // Forzada y transparente para un cliente (ver PowerHistoryRepository.
+        // record): no hay switch ni botón de migrar que tocar, ni nada que
+        // el cliente deba saber sobre esto — mismo criterio que la tarjeta
+        // de Ubicación, que tampoco se le muestra.
+        if (!isMaster) return@item
 
         val migrationDone by viewModel.supabaseMigrationDone.collectAsState()
         val syncEnabled by viewModel.supabaseSyncEnabled.collectAsState()
@@ -1119,38 +1124,15 @@ private fun LazyListScope.systemTab(
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Icon(Icons.Default.CloudSync, contentDescription = null, tint = colors.accent)
                 Text(
-                    if (isMaster) {
-                        "Respalda tu historial en la nube (Supabase) para poder consultarlo desde otro " +
-                            "dispositivo. El guardado local sigue funcionando igual, con o sin conexión."
-                    } else {
-                        "El dispositivo principal necesita tu historial para poder ver tu generación " +
-                            "solar, consumo y batería en la pestaña Clientes — por eso esto no se puede " +
-                            "desactivar en un cliente. El guardado local sigue funcionando igual, con o " +
-                            "sin conexión."
-                    },
+                    "Respalda tu historial en la nube (Supabase) para poder consultarlo desde otro " +
+                        "dispositivo. El guardado local sigue funcionando igual, con o sin conexión.",
                     style = MaterialTheme.typography.bodySmall,
                     color = colors.textMid,
                     modifier = Modifier.padding(start = 8.dp)
                 )
             }
 
-            if (!isMaster) {
-                // Forzado y automático para un cliente (ver PowerHistoryRepository.record):
-                // no hay switch ni botón de migrar que tocar, solo el estado.
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    modifier = Modifier.fillMaxWidth().padding(top = SECTION_CONTENT_SPACING)
-                ) {
-                    Icon(Icons.Default.CloudSync, contentDescription = null, tint = colors.green)
-                    Text(
-                        "Sincronización activada",
-                        style = MaterialTheme.typography.bodyMedium,
-                        fontWeight = FontWeight.Medium,
-                        color = colors.green,
-                        modifier = Modifier.padding(start = 8.dp)
-                    )
-                }
-            } else if (!migrationDone) {
+            if (!migrationDone) {
                 val inProgress = progress as? MigrationProgress.InProgress
                 if (inProgress != null && inProgress.total > 0) {
                     Text(

@@ -1,5 +1,6 @@
 package com.dairoroberto.felicitywatch.domain.usecase
 
+import com.dairoroberto.felicitywatch.data.local.AppPreferences
 import com.dairoroberto.felicitywatch.data.repository.EquipmentRepository
 import com.dairoroberto.felicitywatch.data.repository.FelicityCredentialsMissingException
 import com.dairoroberto.felicitywatch.data.repository.FelicityRepository
@@ -10,16 +11,21 @@ import javax.inject.Singleton
 
 /**
  * Sube el snapshot de equipos (alias/modelo/planta/país/propietario) de
- * este dispositivo a Supabase, con throttle largo — a diferencia de las
- * lecturas de potencia (que cambian todo el tiempo), estos metadatos casi
- * nunca cambian, así que no tiene sentido consultarlos en cada ciclo de
- * monitoreo. Se llama desde RunMonitoringCycleUseCase, best-effort: un
- * fallo aquí (sin red, Felicity caído) nunca debe cortar el ciclo.
+ * este dispositivo a Supabase — con throttle largo una vez que ya se
+ * registró al menos una vez (estos metadatos casi no cambian, a diferencia
+ * de las lecturas de potencia), pero SIN throttle mientras nunca se haya
+ * logrado: se consulta contra Supabase (no memoria local, resiliente a que
+ * Android mate el proceso) si este dispositivo ya tiene un snapshot
+ * guardado, y de no ser así se reintenta en CADA ciclo de monitoreo hasta
+ * lograrlo — mismo criterio que UpdateDeviceLocationUseCase. Se llama desde
+ * RunMonitoringCycleUseCase, best-effort: un fallo aquí (sin red, Felicity
+ * caído) nunca debe cortar el ciclo.
  */
 @Singleton
 class EquipmentSyncUseCase @Inject constructor(
     private val felicityRepository: FelicityRepository,
-    private val equipmentRepository: EquipmentRepository
+    private val equipmentRepository: EquipmentRepository,
+    private val appPreferences: AppPreferences
 ) {
     private var lastSyncAt: Instant? = null
 
@@ -27,6 +33,25 @@ class EquipmentSyncUseCase @Inject constructor(
         val now = Instant.now()
         val last = lastSyncAt
         if (last != null && Duration.between(last, now) < MIN_INTERVAL) return
+
+        // Si este proceso nunca sincronizó desde que arrancó, puede ser
+        // porque de verdad nunca se logró (vale la pena insistir en cada
+        // ciclo) o porque el proceso se reinició y ya había un snapshot de
+        // antes (no hace falta insistir). Se consulta Supabase solo en este
+        // caso — no en cada ciclo normal — para no sumar una llamada de red
+        // de más una vez resuelto el problema.
+        if (last == null) {
+            val deviceId = appPreferences.supabaseDeviceId()
+            val alreadyReported = try {
+                equipmentRepository.fetchEquipmentForDevice(deviceId) != null
+            } catch (e: Exception) {
+                null
+            }
+            if (alreadyReported == true) {
+                lastSyncAt = now
+                return
+            }
+        }
 
         try {
             val devices = felicityRepository.fetchDevices()
