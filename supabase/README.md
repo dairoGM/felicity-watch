@@ -6,11 +6,13 @@ panel o con `psql`.
 
 ```bash
 psql "$SUPABASE_DB_URL" -f supabase/migrations/001_licensing.sql
+psql "$SUPABASE_DB_URL" -f supabase/migrations/002_power_readings_battery_detail.sql
 ```
 
 | Archivo | Qué hace |
 |---|---|
 | `001_licensing.sql` | Periodo free + validación manual de transferencias |
+| `002_power_readings_battery_detail.sql` | Voltaje/corriente/capacidad de batería en `power_readings` |
 
 ## 001_licensing.sql — licenciamiento de clientes
 
@@ -72,3 +74,13 @@ Cerrarlo de verdad requiere sacar la decisión del cliente:
   `transfer_submitted_at` de su propia fila, y nada más.
 
 Vale la pena hacerlo antes de que esto sostenga un cobro real.
+
+## 002_power_readings_battery_detail.sql — detalle de batería
+
+Agrega `battery_voltage`, `battery_current` y `battery_capacity_ah` a
+`power_readings`. Antes esa tabla solo traía `battery_power_watts` (potencia
+ya calculada), suficiente para el mapa/monitoreo básico de un cliente, pero
+insuficiente para que la master vea Autonomía y Excedente Solar en el
+detalle de un cliente (pestaña Clientes) exactamente igual que en el Panel
+del propio cliente — esos cálculos necesitan la capacidad del banco (Ah) y
+el voltaje instantáneo, no solo la potencia.

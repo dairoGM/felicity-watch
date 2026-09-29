@@ -33,5 +33,12 @@ data class PowerReadingEntity(
      * lo que alimenta la casa es esta salida del inversor). Misma escala
      * AC que [gridVoltage] (110/120V), no confundir con el voltaje DC del
      * banco de baterías (48V nominal). */
-    val outputVoltage: Double? = null
+    val outputVoltage: Double? = null,
+    /** Voltaje/corriente instantáneos DC del banco de baterías y su
+     * capacidad — necesarios para estimateBatteryRuntimeHours()/
+     * timeToFullChargeLabel() (ver DashboardScreen.kt). Se agregaron en la
+     * v18 del esquema; filas anteriores quedan en null. */
+    val batteryVoltage: Double? = null,
+    val batteryCurrent: Double? = null,
+    val batteryCapacityAh: Double? = null
 )

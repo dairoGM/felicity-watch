@@ -269,6 +269,20 @@ object Migrations {
         }
     }
 
+    /** v17 → v18: voltaje/corriente instantáneos DC del banco de baterías y
+     * su capacidad — necesarios para que la pestaña Clientes (master) pueda
+     * reconstruir Autonomía y Excedente Solar de un cliente exactamente
+     * igual que su propio Panel, ver PowerHistoryRepository/
+     * SupabaseSyncRepository y supabase/migrations/002_power_readings_battery_detail.sql
+     * (mismas columnas, en la tabla remota). */
+    val MIGRATION_17_18 = object : Migration(17, 18) {
+        override fun migrate(db: SupportSQLiteDatabase) {
+            db.execSQL("ALTER TABLE `power_readings` ADD COLUMN `batteryVoltage` REAL")
+            db.execSQL("ALTER TABLE `power_readings` ADD COLUMN `batteryCurrent` REAL")
+            db.execSQL("ALTER TABLE `power_readings` ADD COLUMN `batteryCapacityAh` REAL")
+        }
+    }
+
     val ALL = arrayOf(
         MIGRATION_6_7,
         MIGRATION_7_8,
@@ -280,6 +294,7 @@ object Migrations {
         MIGRATION_13_14,
         MIGRATION_14_15,
         MIGRATION_15_16,
-        MIGRATION_16_17
+        MIGRATION_16_17,
+        MIGRATION_17_18
     )
 }

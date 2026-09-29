@@ -118,7 +118,10 @@ class SupabaseSyncRepository @Inject constructor(
         pvEnergyTodayKwh = pvEnergyTodayKwh,
         loadEnergyTodayKwh = loadEnergyTodayKwh,
         gridVoltage = gridVoltage,
-        outputVoltage = outputVoltage
+        outputVoltage = outputVoltage,
+        batteryVoltage = batteryVoltage,
+        batteryCurrent = batteryCurrent,
+        batteryCapacityAh = batteryCapacityAh
     )
 
     companion object {

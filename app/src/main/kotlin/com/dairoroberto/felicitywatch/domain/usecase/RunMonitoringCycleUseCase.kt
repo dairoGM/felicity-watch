@@ -105,6 +105,9 @@ class RunMonitoringCycleUseCase @Inject constructor(
             loadEnergyTodayKwh = reading.inverter?.loadEnergyTodayKwh,
             gridVoltage = reading.inverter?.gridVoltage,
             outputVoltage = reading.inverter?.outputVoltage,
+            batteryVoltage = reading.battery?.voltage,
+            batteryCurrent = reading.battery?.current,
+            batteryCapacityAh = reading.battery?.capacityAh,
             now = now
         )
 

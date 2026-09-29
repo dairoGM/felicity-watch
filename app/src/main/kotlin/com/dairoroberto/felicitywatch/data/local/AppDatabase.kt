@@ -17,7 +17,7 @@ import com.dairoroberto.felicitywatch.domain.model.ComparisonOperator
         ImportedBackupEntity::class,
         ConfirmedApplianceEventEntity::class
     ],
-    version = 17,
+    version = 18,
     exportSchema = true
 )
 @TypeConverters(Converters::class)

@@ -45,6 +45,9 @@ class PowerHistoryRepository @Inject constructor(
         loadEnergyTodayKwh: Double?,
         gridVoltage: Double?,
         outputVoltage: Double?,
+        batteryVoltage: Double?,
+        batteryCurrent: Double?,
+        batteryCapacityAh: Double?,
         now: Instant
     ) {
         val reading = PowerReadingEntity(
@@ -57,7 +60,10 @@ class PowerHistoryRepository @Inject constructor(
             pvEnergyTodayKwh = pvEnergyTodayKwh,
             loadEnergyTodayKwh = loadEnergyTodayKwh,
             gridVoltage = gridVoltage,
-            outputVoltage = outputVoltage
+            outputVoltage = outputVoltage,
+            batteryVoltage = batteryVoltage,
+            batteryCurrent = batteryCurrent,
+            batteryCapacityAh = batteryCapacityAh
         )
         dao.insert(reading)
         // Poda liviana: retiene RETENTION_DAYS para que el Reporte y la

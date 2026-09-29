@@ -92,21 +92,6 @@ fun DashboardScreen(viewModel: DashboardViewModel = hiltViewModel()) {
     val lowVoltageThreshold by viewModel.lowVoltageThreshold.collectAsState()
     val trialDaysRemaining by viewModel.freeTrialDaysRemaining.collectAsState()
 
-    // Tick cada segundo: alimenta tanto el reloj en vivo del Panel como los
-    // textos "hace X min", que de lo contrario quedarían congelados hasta
-    // la próxima lectura real aunque el tiempo transcurrido sí cambie.
-    // Metrica cuyo detalle se esta mostrando; null = ningun modal abierto.
-    var metricDetail by remember { mutableStateOf<MetricDetail?>(null) }
-    var showGridTimeline by remember { mutableStateOf(false) }
-
-    var now by remember { mutableStateOf(Instant.now()) }
-    LaunchedEffect(Unit) {
-        while (true) {
-            delay(1_000L)
-            now = Instant.now()
-        }
-    }
-
     // Sin esto, tras terminar el onboarding el Panel se quedaba mostrando
     // "Esperando primera lectura…" hasta el próximo ciclo del servicio en
     // segundo plano (hasta 30s+) sin que el usuario supiera que podía
@@ -115,6 +100,59 @@ fun DashboardScreen(viewModel: DashboardViewModel = hiltViewModel()) {
     LaunchedEffect(state.liveGridState) {
         if (state.liveGridState == GridState.UNKNOWN) {
             viewModel.refreshNow()
+        }
+    }
+
+    DashboardContent(
+        state = state,
+        isRefreshing = isRefreshing,
+        onRefresh = { viewModel.refreshNow() },
+        pollingIntervalSeconds = pollingIntervalSeconds,
+        lowVoltageThreshold = lowVoltageThreshold,
+        trialDaysRemaining = trialDaysRemaining,
+        showPullToRefresh = true,
+        showChannelsRow = true
+    )
+}
+
+/**
+ * Cuerpo visual del Panel, extraído de [DashboardScreen] para poder
+ * reutilizarlo en la pestaña Clientes (detalle de un cliente puntual, ver
+ * ui.clients.ClientDetailScreen) con un [DashboardUiState] reconstruido a
+ * partir de lecturas remotas de Supabase, en vez del estado en vivo local.
+ *
+ * [showPullToRefresh]/[onRefresh]: un cliente remoto no tiene una lectura
+ * "ahora mismo" que forzar, así que esa pantalla pasa `false` y omite el
+ * pull-to-refresh. [showChannelsRow]: los canales de aviso (voz/push/
+ * WhatsApp) son configuración de ESTE teléfono, no del cliente remoto —
+ * tampoco aplican ahí.
+ */
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+fun DashboardContent(
+    state: DashboardUiState,
+    isRefreshing: Boolean,
+    onRefresh: () -> Unit,
+    pollingIntervalSeconds: Int,
+    lowVoltageThreshold: Int,
+    trialDaysRemaining: Int?,
+    showPullToRefresh: Boolean,
+    showChannelsRow: Boolean
+) {
+    // Metrica cuyo detalle se esta mostrando; null = ningun modal abierto.
+    var metricDetail by remember { mutableStateOf<MetricDetail?>(null) }
+    var showGridTimeline by remember { mutableStateOf(false) }
+
+    // Tick cada segundo: alimenta los textos "hace X min", que de lo
+    // contrario quedarían congelados hasta la próxima recomposición aunque
+    // el tiempo transcurrido sí cambie. En DashboardScreen esto además
+    // alimenta el reloj en vivo (ClockAndConnectionRow lo muestra siempre,
+    // aunque el "reloj" en sí solo tiene sentido para el propio teléfono).
+    var now by remember { mutableStateOf(Instant.now()) }
+    LaunchedEffect(Unit) {
+        while (true) {
+            delay(1_000L)
+            now = Instant.now()
         }
     }
 
@@ -137,11 +175,7 @@ fun DashboardScreen(viewModel: DashboardViewModel = hiltViewModel()) {
         )
     }
 
-    PullToRefreshBox(
-        isRefreshing = isRefreshing,
-        onRefresh = { viewModel.refreshNow() },
-        modifier = Modifier.fillMaxSize()
-    ) {
+    val content: @Composable androidx.compose.foundation.layout.BoxScope.() -> Unit = {
         LazyColumn(
             modifier = Modifier.fillMaxSize(),
             contentPadding = PaddingValues(16.dp),
@@ -172,8 +206,21 @@ fun DashboardScreen(viewModel: DashboardViewModel = hiltViewModel()) {
             // card standalone de excedente que existía antes (PvSurplusCard)
             // se retiró para no repetir la misma información dos veces.
             item { BatteryProjectionRow(state) }
-            item { ChannelsRow(state) }
+            if (showChannelsRow) {
+                item { ChannelsRow(state) }
+            }
         }
+    }
+
+    if (showPullToRefresh) {
+        PullToRefreshBox(
+            isRefreshing = isRefreshing,
+            onRefresh = onRefresh,
+            modifier = Modifier.fillMaxSize(),
+            content = content
+        )
+    } else {
+        Box(Modifier.fillMaxSize()) { content() }
     }
 }
 
