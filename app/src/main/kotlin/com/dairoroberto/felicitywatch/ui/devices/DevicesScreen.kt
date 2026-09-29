@@ -65,56 +65,70 @@ private val DEVICES_TABS = listOf("Planta", "Dispositivos")
 @Composable
 fun DevicesScreen(viewModel: DevicesViewModel = hiltViewModel()) {
     val state by viewModel.uiState.collectAsState()
-    val colors = LocalFelicityColors.current
-    var selectedTab by remember { mutableIntStateOf(0) }
 
     PullToRefreshBox(
         isRefreshing = state.loading,
         onRefresh = { viewModel.refresh() },
         modifier = Modifier.fillMaxSize()
     ) {
-        val error = state.error
-        if (error != null) {
-            Column(Modifier.fillMaxWidth().padding(16.dp)) {
-                Card(colors = CardDefaults.cardColors(containerColor = colors.dangerBg), shape = RoundedCornerShape(12.dp)) {
-                    Text(
-                        error,
-                        style = MaterialTheme.typography.bodyMedium,
-                        modifier = Modifier.padding(14.dp)
+        DevicesContent(state)
+    }
+}
+
+/**
+ * Cuerpo visual de "Equipos", extraído de [DevicesScreen] para reutilizarlo
+ * en la pestaña Clientes (detalle de un cliente puntual, ver
+ * ui.clients.ClientEquipmentScreen) con un [DevicesUiState] reconstruido a
+ * partir de un snapshot de equipos ya sincronizado a Supabase, en vez de
+ * consultar Felicity en vivo (la master no tiene las credenciales de FSolar
+ * de ese cliente).
+ */
+@Composable
+fun DevicesContent(state: DevicesUiState) {
+    val colors = LocalFelicityColors.current
+    var selectedTab by remember { mutableIntStateOf(0) }
+
+    val error = state.error
+    if (error != null) {
+        Column(Modifier.fillMaxWidth().padding(16.dp)) {
+            Card(colors = CardDefaults.cardColors(containerColor = colors.dangerBg), shape = RoundedCornerShape(12.dp)) {
+                Text(
+                    error,
+                    style = MaterialTheme.typography.bodyMedium,
+                    modifier = Modifier.padding(14.dp)
+                )
+            }
+        }
+    } else if (state.devices.isEmpty() && !state.loading) {
+        Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+            Text(
+                "Todavía no se encontraron dispositivos.\nDesliza hacia abajo para reintentar.",
+                style = MaterialTheme.typography.bodyMedium,
+                color = colors.textMid
+            )
+        }
+    } else {
+        Column(Modifier.fillMaxSize()) {
+            TabRow(selectedTabIndex = selectedTab, containerColor = colors.surface2) {
+                DEVICES_TABS.forEachIndexed { index, title ->
+                    Tab(
+                        selected = selectedTab == index,
+                        onClick = { selectedTab = index },
+                        text = { Text(title, style = MaterialTheme.typography.labelSmall) }
                     )
                 }
             }
-        } else if (state.devices.isEmpty() && !state.loading) {
-            Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                Text(
-                    "Todavía no se encontraron dispositivos.\nDesliza hacia abajo para reintentar.",
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = colors.textMid
-                )
-            }
-        } else {
-            Column(Modifier.fillMaxSize()) {
-                TabRow(selectedTabIndex = selectedTab, containerColor = colors.surface2) {
-                    DEVICES_TABS.forEachIndexed { index, title ->
-                        Tab(
-                            selected = selectedTab == index,
-                            onClick = { selectedTab = index },
-                            text = { Text(title, style = MaterialTheme.typography.labelSmall) }
-                        )
-                    }
-                }
 
-                LazyColumn(
-                    contentPadding = PaddingValues(16.dp),
-                    verticalArrangement = Arrangement.spacedBy(12.dp)
-                ) {
-                    when (selectedTab) {
-                        0 -> items(state.plants, key = { it.plantId }) { plant ->
-                            PlantDetailCard(plant, state.inverterReading)
-                        }
-                        1 -> items(state.devices, key = { it.serialNumber }) { device ->
-                            DeviceRow(device, state.inverterReading, state.batteryReading)
-                        }
+            LazyColumn(
+                contentPadding = PaddingValues(16.dp),
+                verticalArrangement = Arrangement.spacedBy(12.dp)
+            ) {
+                when (selectedTab) {
+                    0 -> items(state.plants, key = { it.plantId }) { plant ->
+                        PlantDetailCard(plant, state.inverterReading)
+                    }
+                    1 -> items(state.devices, key = { it.serialNumber }) { device ->
+                        DeviceRow(device, state.inverterReading, state.batteryReading)
                     }
                 }
             }

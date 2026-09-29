@@ -7,12 +7,14 @@ panel o con `psql`.
 ```bash
 psql "$SUPABASE_DB_URL" -f supabase/migrations/001_licensing.sql
 psql "$SUPABASE_DB_URL" -f supabase/migrations/002_power_readings_battery_detail.sql
+psql "$SUPABASE_DB_URL" -f supabase/migrations/003_account_device_equipment.sql
 ```
 
 | Archivo | Qué hace |
 |---|---|
 | `001_licensing.sql` | Periodo free + validación manual de transferencias |
 | `002_power_readings_battery_detail.sql` | Voltaje/corriente/capacidad de batería en `power_readings` |
+| `003_account_device_equipment.sql` | Metadatos de equipos (alias/modelo/planta) de cada dispositivo |
 
 ## 001_licensing.sql — licenciamiento de clientes
 
@@ -84,3 +86,16 @@ insuficiente para que la master vea Autonomía y Excedente Solar en el
 detalle de un cliente (pestaña Clientes) exactamente igual que en el Panel
 del propio cliente — esos cálculos necesitan la capacidad del banco (Ah) y
 el voltaje instantáneo, no solo la potencia.
+
+## 003_account_device_equipment.sql — metadatos de equipos
+
+Crea `account_device_equipment`, una fila por `device_id` con un snapshot
+JSON de los equipos (inversor/batería) que ese dispositivo consulta a
+Felicity — alias, modelo, planta, país, propietario, capacidad instalada.
+Alimenta la pestaña "Equipos" del detalle de un cliente (pestaña Clientes
+de la master), para que se vea igual que la pantalla Equipos del propio
+cliente sin necesitar sus credenciales de FSolar.
+
+Estos metadatos casi no cambian (a diferencia de las lecturas de potencia),
+así que cada cliente los sube con un throttle largo, no en cada ciclo de
+monitoreo — ver `EquipmentSyncUseCase`.

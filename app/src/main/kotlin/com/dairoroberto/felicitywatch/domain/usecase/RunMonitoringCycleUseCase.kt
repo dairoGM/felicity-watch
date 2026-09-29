@@ -42,7 +42,8 @@ class RunMonitoringCycleUseCase @Inject constructor(
     private val deviceRoleRepository: DeviceRoleRepository,
     private val updateDeviceLocationUseCase: UpdateDeviceLocationUseCase,
     private val evaluateDeviceApprovalUseCase: EvaluateDeviceApprovalUseCase,
-    private val notifyMasterOfClientActivityUseCase: NotifyMasterOfClientActivityUseCase
+    private val notifyMasterOfClientActivityUseCase: NotifyMasterOfClientActivityUseCase,
+    private val equipmentSyncUseCase: EquipmentSyncUseCase
 ) {
     suspend fun run(): SystemReading {
         if (!credentialsStore.hasFsolarCredentials()) {
@@ -127,6 +128,17 @@ class RunMonitoringCycleUseCase @Inject constructor(
         // disponible, simplemente no actualiza nada este ciclo.
         try {
             updateDeviceLocationUseCase.run()
+        } catch (e: Exception) {
+            // Ignorado a propósito.
+        }
+
+        // Metadatos de equipos (alias/modelo/planta) para la pestaña
+        // "Equipos" del detalle de este dispositivo en la master — throttle
+        // largo interno (6h, ver EquipmentSyncUseCase), no cambia con la
+        // frecuencia de las lecturas de potencia. Best-effort igual que el
+        // resto: sin red o sin credenciales, simplemente no actualiza nada.
+        try {
+            equipmentSyncUseCase.run()
         } catch (e: Exception) {
             // Ignorado a propósito.
         }

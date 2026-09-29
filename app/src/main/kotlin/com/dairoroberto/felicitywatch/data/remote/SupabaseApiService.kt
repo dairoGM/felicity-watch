@@ -2,6 +2,7 @@ package com.dairoroberto.felicitywatch.data.remote
 
 import com.dairoroberto.felicitywatch.data.remote.dto.AccountDeviceApprovalDto
 import com.dairoroberto.felicitywatch.data.remote.dto.AccountDeviceDto
+import com.dairoroberto.felicitywatch.data.remote.dto.AccountDeviceEquipmentDto
 import com.dairoroberto.felicitywatch.data.remote.dto.AccountDeviceStatusDto
 import com.dairoroberto.felicitywatch.data.remote.dto.AccountSettingsDto
 import com.dairoroberto.felicitywatch.data.remote.dto.DesktopPairingDto
@@ -149,4 +150,26 @@ interface SupabaseApiService {
         @Header("Prefer") prefer: String = "return=minimal",
         @Body updates: Map<String, @JvmSuppressWildcards Any?>
     ): Response<Unit>
+
+    /**
+     * Sube (upsert) el snapshot de equipos de ESTE dispositivo — ver
+     * migración 003_account_device_equipment.sql. `on_conflict=device_id`
+     * porque es upsert por clave primaria, no inserción con historial: cada
+     * dispositivo tiene una sola fila que se sobrescribe completa en cada
+     * sincronización (a diferencia de power_readings, que sí acumula
+     * historial por timestamp).
+     */
+    @POST("rest/v1/account_device_equipment")
+    suspend fun upsertAccountDeviceEquipment(
+        @Query("on_conflict") onConflict: String = "device_id",
+        @Header("Prefer") prefer: String = "resolution=merge-duplicates,return=minimal",
+        @Body equipment: List<AccountDeviceEquipmentDto>
+    ): Response<Unit>
+
+    /** Equipos de UN dispositivo puntual — para la pestaña "Equipos" del
+     * detalle de un cliente (pestaña Clientes de la master). */
+    @GET("rest/v1/account_device_equipment")
+    suspend fun getAccountDeviceEquipment(
+        @Query("device_id") deviceIdFilter: String
+    ): Response<List<AccountDeviceEquipmentDto>>
 }

@@ -580,6 +580,17 @@ private fun LazyListScope.systemTab(
 
     item {
         val colors = LocalFelicityColors.current
+        // Un cliente reporta su ubicación de todas formas (forzado, ver
+        // UpdateDeviceLocationUseCase) para que el master pueda ubicarlo en
+        // el mapa — pero sin exponerle esta tarjeta explicativa: la idea es
+        // que ese reporte sea transparente para el cliente, no algo que
+        // pueda pausar ni sobre lo que necesite enterarse. El permiso en sí
+        // se sigue pidiendo igual (Android exige el diálogo del sistema,
+        // sin eso no hay ubicación posible) — solo se oculta la mención a
+        // "ubicación"/"mapa" dentro de la propia app del cliente.
+        val isMaster by viewModel.isMasterDevice.collectAsState()
+        if (!isMaster) return@item
+
         SectionCard(title = "Ubicación") {
             Text(
                 "Reporta la ubicación de este dispositivo para que el dispositivo principal " +

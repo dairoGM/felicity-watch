@@ -110,12 +110,12 @@ fun DeviceBlockedScreen(
                 showBackgroundLocationExplainer = false
                 onAccessGranted()
             },
-            title = { Text("Ubicación en segundo plano") },
+            title = { Text("Un permiso más") },
             text = {
                 Text(
-                    "Para que tu dispositivo principal pueda ubicarte en el mapa, Android pide un " +
-                        "permiso aparte: \"Permitir todo el tiempo\". Vas a ver la pantalla de " +
-                        "permisos de la app — elige esa opción en Ubicación."
+                    "Android pide un permiso aparte para que la app funcione bien en segundo " +
+                        "plano: \"Permitir todo el tiempo\". Vas a ver la pantalla de permisos de " +
+                        "la app — elige esa opción en Ubicación."
                 )
             },
             confirmButton = {

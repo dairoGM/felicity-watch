@@ -12,11 +12,17 @@ import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Tab
+import androidx.compose.material3.TabRow
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
@@ -24,32 +30,36 @@ import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import com.dairoroberto.felicitywatch.data.local.AppPreferences
 import com.dairoroberto.felicitywatch.ui.dashboard.DashboardContent
+import com.dairoroberto.felicitywatch.ui.devices.DevicesContent
 import com.dairoroberto.felicitywatch.ui.theme.LocalFelicityColors
 
+private val CLIENT_DETAIL_TABS = listOf("Panel", "Equipos")
+
 /**
- * Detalle de UN cliente para la master — reusa DashboardContent (el mismo
- * cuerpo visual del Panel: hero de red, cards de PV/Batería/Consumo con
- * sparklines, anillo de Autonomía, Excedente Solar, y sus mismos modales de
- * detalle al tocar cada card) con un DashboardUiState reconstruido a partir
- * de las lecturas que ese cliente ya sube a Supabase con su propio
- * device_id — sin necesitar sus credenciales de FSolar (ver
- * ClientDetailViewModel).
- *
- * Sin pull-to-refresh (no hay una lectura "ahora mismo" que forzar en un
- * dispositivo remoto) ni fila de canales de aviso (son configuración de
- * ESTE teléfono, no del cliente).
+ * Detalle de UN cliente para la master, con las mismas dos vistas que la
+ * propia app del cliente: "Panel" (DashboardContent — hero de red, cards de
+ * PV/Batería/Consumo con sparklines, anillo de Autonomía, Excedente Solar,
+ * y sus mismos modales de detalle) y "Equipos" (DevicesContent — inversor/
+ * batería con alias, modelo, planta, diagrama de flujo). Ambas se ven
+ * exactamente como en la app del cliente, reconstruidas desde lo que ya
+ * sincroniza a Supabase (lecturas de potencia + snapshot de equipos), sin
+ * necesitar sus credenciales de FSolar.
  */
 @Composable
 fun ClientDetailScreen(
     deviceId: String,
     displayName: String?,
     onBack: () -> Unit,
-    viewModel: ClientDetailViewModel = hiltViewModel()
+    dashboardViewModel: ClientDetailViewModel = hiltViewModel(),
+    equipmentViewModel: ClientEquipmentViewModel = hiltViewModel()
 ) {
     val colors = LocalFelicityColors.current
-    val state by viewModel.state.collectAsState()
+    var selectedTab by remember { mutableIntStateOf(0) }
 
-    LaunchedEffect(deviceId) { viewModel.load(deviceId) }
+    LaunchedEffect(deviceId) {
+        dashboardViewModel.load(deviceId)
+        equipmentViewModel.load(deviceId)
+    }
 
     // Sin Scaffold/TopAppBar propio: esta pantalla vive bajo el NavHost
     // general (Más > Clientes > detalle), que ya trae su propia TopAppBar
@@ -73,45 +83,74 @@ fun ClientDetailScreen(
             )
         }
 
-        when (val current = state) {
-            is ClientDetailState.Loading -> Box(
-                Modifier.fillMaxSize(),
-                contentAlignment = Alignment.Center
-            ) { CircularProgressIndicator() }
-
-            is ClientDetailState.Error -> Box(
-                Modifier.fillMaxSize().padding(24.dp),
-                contentAlignment = Alignment.Center
-            ) {
-                Text(
-                    "No se pudo consultar: ${current.message}",
-                    color = colors.textMid,
-                    style = MaterialTheme.typography.bodyMedium
+        TabRow(selectedTabIndex = selectedTab, containerColor = colors.surface2) {
+            CLIENT_DETAIL_TABS.forEachIndexed { index, title ->
+                Tab(
+                    selected = selectedTab == index,
+                    onClick = { selectedTab = index },
+                    text = { Text(title, style = MaterialTheme.typography.labelSmall) }
                 )
             }
+        }
 
-            is ClientDetailState.NoData -> Box(
-                Modifier.fillMaxSize().padding(24.dp),
-                contentAlignment = Alignment.Center
-            ) {
-                Text(
-                    "Este dispositivo todavía no reportó datos. Debe tener la " +
-                        "\"Sincronización en la nube\" activada en su propio Ajustes > Sistema.",
-                    color = colors.textMid,
-                    style = MaterialTheme.typography.bodyMedium
-                )
-            }
+        when (selectedTab) {
+            0 -> ClientPanelTab(dashboardViewModel)
+            1 -> ClientEquipmentTab(equipmentViewModel)
+        }
+    }
+}
 
-            is ClientDetailState.Loaded -> DashboardContent(
-                state = current.uiState,
-                isRefreshing = false,
-                onRefresh = {},
-                pollingIntervalSeconds = AppPreferences.DEFAULT_POLLING_INTERVAL_SECONDS,
-                lowVoltageThreshold = AppPreferences.DEFAULT_LOW_VOLTAGE_THRESHOLD,
-                trialDaysRemaining = null,
-                showPullToRefresh = false,
-                showChannelsRow = false
+@Composable
+private fun ClientPanelTab(viewModel: ClientDetailViewModel) {
+    val colors = LocalFelicityColors.current
+    val state by viewModel.state.collectAsState()
+
+    when (val current = state) {
+        is ClientDetailState.Loading -> Box(
+            Modifier.fillMaxSize(),
+            contentAlignment = Alignment.Center
+        ) { CircularProgressIndicator() }
+
+        is ClientDetailState.Error -> Box(
+            Modifier.fillMaxSize().padding(24.dp),
+            contentAlignment = Alignment.Center
+        ) {
+            Text(
+                "No se pudo consultar: ${current.message}",
+                color = colors.textMid,
+                style = MaterialTheme.typography.bodyMedium
             )
         }
+
+        is ClientDetailState.NoData -> Box(
+            Modifier.fillMaxSize().padding(24.dp),
+            contentAlignment = Alignment.Center
+        ) {
+            Text(
+                "Este dispositivo todavía no reportó datos. Debe tener la " +
+                    "\"Sincronización en la nube\" activada en su propio Ajustes > Sistema.",
+                color = colors.textMid,
+                style = MaterialTheme.typography.bodyMedium
+            )
+        }
+
+        is ClientDetailState.Loaded -> DashboardContent(
+            state = current.uiState,
+            isRefreshing = false,
+            onRefresh = {},
+            pollingIntervalSeconds = AppPreferences.DEFAULT_POLLING_INTERVAL_SECONDS,
+            lowVoltageThreshold = AppPreferences.DEFAULT_LOW_VOLTAGE_THRESHOLD,
+            trialDaysRemaining = null,
+            showPullToRefresh = false,
+            showChannelsRow = false
+        )
+    }
+}
+
+@Composable
+private fun ClientEquipmentTab(viewModel: ClientEquipmentViewModel) {
+    val state by viewModel.state.collectAsState()
+    Box(Modifier.fillMaxSize()) {
+        DevicesContent(state)
     }
 }
