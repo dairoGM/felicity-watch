@@ -22,6 +22,8 @@ import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.stateIn
+import com.dairoroberto.felicitywatch.domain.model.LicenseStatus
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import java.time.Instant
 import javax.inject.Inject
@@ -78,12 +80,40 @@ class DashboardViewModel @Inject constructor(
     alertEventRepository: AlertEventRepository,
     private val credentialsStore: CredentialsStore,
     private val powerHistoryRepository: PowerHistoryRepository,
-    appPreferences: AppPreferences,
+    private val deviceRoleRepository: com.dairoroberto.felicitywatch.data.repository.DeviceRoleRepository,
+    private val appPreferences: AppPreferences,
     @ApplicationContext private val context: android.content.Context
 ) : ViewModel() {
 
     private val _isRefreshing = MutableStateFlow(false)
     val isRefreshing: StateFlow<Boolean> = _isRefreshing
+
+    /** Días de prueba restantes, o null si no aplica (master, licencia
+     * aprobada, o sin periodo free en curso). Alimenta el aviso del Panel: sin
+     * esto, el cliente no tiene forma de saber cuánto le queda hasta que la
+     * app deja de funcionar de un día para otro. */
+    private val _freeTrialDaysRemaining = MutableStateFlow<Int?>(null)
+    val freeTrialDaysRemaining: StateFlow<Int?> = _freeTrialDaysRemaining
+
+    init {
+        refreshTrialStatus()
+    }
+
+    private fun refreshTrialStatus() {
+        viewModelScope.launch {
+            if (appPreferences.isMasterDevice.first()) {
+                _freeTrialDaysRemaining.value = null
+                return@launch
+            }
+            val license = deviceRoleRepository.ownLicenseState()
+            if (license == null || license.status != LicenseStatus.FREE) {
+                _freeTrialDaysRemaining.value = null
+                return@launch
+            }
+            val days = deviceRoleRepository.freePeriodDays()
+            _freeTrialDaysRemaining.value = license.freeDaysRemaining(days)
+        }
+    }
 
     /** Intervalo de consulta vigente, para calcular en el Panel cuánto falta
      * para la próxima lectura. */

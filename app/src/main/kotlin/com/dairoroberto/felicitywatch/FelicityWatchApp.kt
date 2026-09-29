@@ -42,9 +42,13 @@ class FelicityWatchApp : Application(), Configuration.Provider {
             // perfectamente válidas y aun así no debe consultar Felicity ni
             // usar la app (guía: modelo master/cliente).
             CoroutineScope(Dispatchers.IO).launch {
+                // Solo Allowed arranca el servicio: una licencia vencida o
+                // bloqueada tampoco debe consultar Felicity en segundo plano.
                 when (evaluateDeviceApprovalUseCase.evaluate()) {
                     DeviceAccessDecision.Allowed -> MonitoringServiceController.start(this@FelicityWatchApp)
-                    DeviceAccessDecision.Blocked -> Unit
+                    DeviceAccessDecision.Blocked,
+                    is DeviceAccessDecision.TransferRequired,
+                    is DeviceAccessDecision.LicenseBlocked -> Unit
                 }
             }
         }

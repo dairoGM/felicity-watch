@@ -90,6 +90,7 @@ fun DashboardScreen(viewModel: DashboardViewModel = hiltViewModel()) {
     val isRefreshing by viewModel.isRefreshing.collectAsState()
     val pollingIntervalSeconds by viewModel.pollingIntervalSeconds.collectAsState()
     val lowVoltageThreshold by viewModel.lowVoltageThreshold.collectAsState()
+    val trialDaysRemaining by viewModel.freeTrialDaysRemaining.collectAsState()
 
     // Tick cada segundo: alimenta tanto el reloj en vivo del Panel como los
     // textos "hace X min", que de lo contrario quedarían congelados hasta
@@ -146,6 +147,13 @@ fun DashboardScreen(viewModel: DashboardViewModel = hiltViewModel()) {
             contentPadding = PaddingValues(16.dp),
             verticalArrangement = Arrangement.spacedBy(14.dp)
         ) {
+            // Aviso de periodo de prueba, arriba del todo: es lo único que
+            // avisa al cliente de que su acceso tiene fecha de caducidad.
+            // Sin esto, la app simplemente dejaba de funcionar un día y el
+            // usuario no tenía forma de haberlo previsto.
+            trialDaysRemaining?.let { days ->
+                item { FreeTrialBanner(days) }
+            }
             item { ClockAndConnectionRow(state, now, pollingIntervalSeconds) }
             item {
                 GridHeroCard(
@@ -829,6 +837,53 @@ private fun SurplusVerticalBar(
             color = colors.textMid,
             modifier = Modifier.padding(top = 4.dp)
         )
+    }
+}
+
+/**
+ * Aviso de periodo de prueba en el Panel del cliente.
+ *
+ * Se vuelve rojo en los últimos 3 días: hasta ahí es informativo, a partir de
+ * ahí es una fecha límite real, y el cambio de color es lo que hace que el
+ * usuario lo note antes de quedarse sin acceso de golpe.
+ */
+@Composable
+private fun FreeTrialBanner(daysRemaining: Int) {
+    val colors = LocalFelicityColors.current
+    val urgent = daysRemaining <= 3
+    val accent = if (urgent) MaterialTheme.colorScheme.error else colors.accent
+
+    Row(
+        verticalAlignment = Alignment.CenterVertically,
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(12.dp))
+            .background(accent.copy(alpha = 0.12f))
+            .padding(horizontal = 12.dp, vertical = 10.dp)
+    ) {
+        Icon(
+            Icons.Default.Schedule,
+            contentDescription = null,
+            tint = accent,
+            modifier = Modifier.size(18.dp)
+        )
+        Column(Modifier.padding(start = 10.dp)) {
+            Text(
+                when {
+                    daysRemaining <= 0 -> "Tu periodo de prueba termina hoy"
+                    daysRemaining == 1 -> "Te queda 1 día de prueba"
+                    else -> "Te quedan $daysRemaining días de prueba"
+                },
+                style = MaterialTheme.typography.bodySmall,
+                fontWeight = FontWeight.SemiBold,
+                color = accent
+            )
+            Text(
+                "Al terminar deberás enviar el ID de tu transferencia para seguir usando la app.",
+                style = MaterialTheme.typography.labelSmall,
+                color = colors.textMid
+            )
+        }
     }
 }
 

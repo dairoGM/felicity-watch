@@ -115,7 +115,7 @@ fun FelicityWatchNavHost(
     }
 
     val deviceAccessState by rootViewModel.deviceAccessState.collectAsState()
-    when (deviceAccessState) {
+    when (val access = deviceAccessState) {
         DeviceAccessState.Checking -> {
             androidx.compose.foundation.layout.Box(
                 modifier = Modifier
@@ -132,6 +132,20 @@ fun FelicityWatchNavHost(
                 onAccessGranted = { rootViewModel.checkDeviceAccess() },
                 onRetryCheck = { rootViewModel.checkDeviceAccess() }
             )
+            return
+        }
+        // Venció el periodo free: pide el ID de la transferencia. No es la
+        // misma pantalla que Blocked — ahí falta un código, aquí falta el pago.
+        is DeviceAccessState.TransferRequired -> {
+            LicenseTransferScreen(
+                license = access.license,
+                freePeriodDays = access.freePeriodDays,
+                onStateChanged = { rootViewModel.checkDeviceAccess() }
+            )
+            return
+        }
+        is DeviceAccessState.LicenseBlocked -> {
+            LicenseBlockedScreen(license = access.license)
             return
         }
         DeviceAccessState.Allowed -> Unit

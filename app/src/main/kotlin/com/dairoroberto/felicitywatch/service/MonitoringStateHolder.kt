@@ -56,6 +56,28 @@ class MonitoringStateHolder @Inject constructor() {
     private val _serviceRunning = MutableStateFlow(false)
     val serviceRunning: StateFlow<Boolean> = _serviceRunning
 
+    /**
+     * Contador que sube cada vez que el ciclo de monitoreo detecta que este
+     * dispositivo perdió el acceso (licencia vencida, rechazada o bloqueada).
+     *
+     * Es una señal, no un estado: RootViewModel lo observa para re-evaluar el
+     * acceso y cambiar de pantalla SIN esperar a que el usuario cierre y
+     * reabra la app. Se usa un contador y no un booleano porque el estado
+     * concreto (pedir transferencia / bloqueado) lo resuelve la re-evaluación;
+     * aquí solo hace falta avisar "algo cambió, vuelve a mirar".
+     *
+     * La revocación del dispositivo ya tenía su propio canal
+     * (clientApprovalConfirmed en DataStore); el vencimiento de licencia no
+     * escribía ningún flag, así que la UI se quedaba en el Panel mientras el
+     * ciclo ya estaba cortando las lecturas.
+     */
+    private val _accessRevalidationTick = MutableStateFlow(0)
+    val accessRevalidationTick: StateFlow<Int> = _accessRevalidationTick
+
+    fun signalAccessLost() {
+        _accessRevalidationTick.value += 1
+    }
+
     private val _lastErrorMessage = MutableStateFlow<String?>(null)
     val lastErrorMessage: StateFlow<String?> = _lastErrorMessage
 

@@ -41,7 +41,8 @@ class RunMonitoringCycleUseCase @Inject constructor(
     private val notifyLowVoltageUseCase: NotifyLowVoltageUseCase,
     private val deviceRoleRepository: DeviceRoleRepository,
     private val updateDeviceLocationUseCase: UpdateDeviceLocationUseCase,
-    private val evaluateDeviceApprovalUseCase: EvaluateDeviceApprovalUseCase
+    private val evaluateDeviceApprovalUseCase: EvaluateDeviceApprovalUseCase,
+    private val notifyMasterOfClientActivityUseCase: NotifyMasterOfClientActivityUseCase
 ) {
     suspend fun run(): SystemReading {
         if (!credentialsStore.hasFsolarCredentials()) {
@@ -57,9 +58,25 @@ class RunMonitoringCycleUseCase @Inject constructor(
         // observa para sacar al usuario de inmediato a la pantalla de
         // código. Se corta ANTES de consultar Felicity: sin acceso, no
         // tiene sentido gastar esa lectura.
-        if (evaluateDeviceApprovalUseCase.evaluate() == DeviceAccessDecision.Blocked) {
+        // Cualquier decisión distinta de Allowed corta el ciclo, no solo
+        // Blocked: una licencia vencida o bloqueada también quita el acceso, y
+        // comparar contra Blocked a secas dejaría a ese cliente monitoreando en
+        // segundo plano mientras la UI le muestra la pantalla de pago.
+        if (evaluateDeviceApprovalUseCase.evaluate() != DeviceAccessDecision.Allowed) {
+            // Avisa a la UI para que re-evalúe y cambie de pantalla sola. Sin
+            // esto, una licencia vencida cortaba las lecturas pero dejaba al
+            // usuario viendo el Panel hasta que cerrara y reabriera la app: el
+            // canal que ya existía (clientApprovalConfirmed) solo cubre la
+            // revocación del dispositivo, no el vencimiento de la licencia.
+            stateHolder.signalAccessLost()
             throw DeviceAccessRevokedException()
         }
+
+        // No-op en un cliente (ver el chequeo de isMasterDevice adentro). Va
+        // ANTES de consultar Felicity para que un fallo de Supabase (offline,
+        // migración sin aplicar) no bloquee la lectura real del inversor —
+        // esto es informativo, la lectura de potencia no lo es.
+        runCatching { notifyMasterOfClientActivityUseCase.run() }
 
         val reading = felicityRepository.fetchLatestReading()
         val now = Instant.now()

@@ -3,6 +3,7 @@ package com.dairoroberto.felicitywatch.data.remote
 import com.dairoroberto.felicitywatch.data.remote.dto.AccountDeviceApprovalDto
 import com.dairoroberto.felicitywatch.data.remote.dto.AccountDeviceDto
 import com.dairoroberto.felicitywatch.data.remote.dto.AccountDeviceStatusDto
+import com.dairoroberto.felicitywatch.data.remote.dto.AccountSettingsDto
 import com.dairoroberto.felicitywatch.data.remote.dto.DesktopPairingDto
 import com.dairoroberto.felicitywatch.data.remote.dto.SupabasePowerReadingDto
 import retrofit2.Response
@@ -39,6 +40,20 @@ interface SupabaseApiService {
         @Header("Prefer") prefer: String,
         @Body readings: List<SupabasePowerReadingDto>
     ): Response<Unit>
+
+    /**
+     * Lecturas de UN dispositivo puntual (master o cliente), más recientes
+     * primero — usado por la master para ver PV/consumo/batería/red de un
+     * cliente elegido en la pestaña Clientes, sin necesitar sus credenciales
+     * de FSolar: el cliente ya sube su propio historial con su device_id
+     * (ver PowerHistoryRepository.record) si tiene la sincronización activada.
+     */
+    @GET("rest/v1/power_readings")
+    suspend fun getReadingsForDevice(
+        @Query("device_id") deviceIdFilter: String,
+        @Query("order") order: String = "timestamp_epoch_millis.desc",
+        @Query("limit") limit: Int = 200
+    ): Response<List<SupabasePowerReadingDto>>
 
     /** Genera un PIN de emparejamiento — llamada desde el celular (Ajustes > Sincronización). */
     @POST("rest/v1/desktop_pairings")
@@ -118,5 +133,20 @@ interface SupabaseApiService {
     suspend fun deleteAccountDevice(
         @Query("device_id") deviceIdFilter: String,
         @Header("Prefer") prefer: String = "return=minimal"
+    ): Response<Unit>
+
+    /** Configuración de la cuenta (días de periodo free) — fila única
+     * `id='default'`, ver 001_licensing.sql. */
+    @GET("rest/v1/account_settings")
+    suspend fun getAccountSettings(
+        @Query("id") idFilter: String = "eq.default",
+        @Query("select") select: String = "*"
+    ): Response<List<AccountSettingsDto>>
+
+    @PATCH("rest/v1/account_settings")
+    suspend fun updateAccountSettings(
+        @Query("id") idFilter: String = "eq.default",
+        @Header("Prefer") prefer: String = "return=minimal",
+        @Body updates: Map<String, @JvmSuppressWildcards Any?>
     ): Response<Unit>
 }

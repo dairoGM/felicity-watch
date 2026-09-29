@@ -3,6 +3,8 @@ package com.dairoroberto.felicitywatch.domain.usecase
 import com.dairoroberto.felicitywatch.data.local.AppPreferences
 import com.dairoroberto.felicitywatch.data.repository.ApprovalStatus
 import com.dairoroberto.felicitywatch.data.repository.DeviceRoleRepository
+import com.dairoroberto.felicitywatch.domain.model.LicenseState
+import com.dairoroberto.felicitywatch.domain.model.LicenseStatus
 import kotlinx.coroutines.flow.first
 import javax.inject.Inject
 
@@ -10,6 +12,18 @@ import javax.inject.Inject
 sealed class DeviceAccessDecision {
     data object Allowed : DeviceAccessDecision()
     data object Blocked : DeviceAccessDecision()
+
+    /**
+     * Aprobado como dispositivo, pero con la licencia vencida: se le acabó el
+     * periodo free y debe declarar el ID de su transferencia.
+     *
+     * Es distinto de [Blocked] a propósito: no le falta un código, le falta
+     * pagar. La pantalla que corresponde pide el comprobante, no un PIN.
+     */
+    data class TransferRequired(val license: LicenseState, val freePeriodDays: Int) : DeviceAccessDecision()
+
+    /** Agotó los 3 intentos. Solo el master puede devolverle el acceso. */
+    data class LicenseBlocked(val license: LicenseState) : DeviceAccessDecision()
 }
 
 /**
@@ -38,7 +52,7 @@ class EvaluateDeviceApprovalUseCase @Inject constructor(
         when (deviceRoleRepository.checkOwnApprovalStatus()) {
             ApprovalStatus.Approved -> {
                 appPreferences.setClientApprovalConfirmed(true)
-                return DeviceAccessDecision.Allowed
+                return evaluateLicense()
             }
             ApprovalStatus.PendingOrRevoked -> {
                 appPreferences.setClientApprovalConfirmed(false)
@@ -49,5 +63,36 @@ class EvaluateDeviceApprovalUseCase @Inject constructor(
                 return if (lastKnown) DeviceAccessDecision.Allowed else DeviceAccessDecision.Blocked
             }
         }
+    }
+
+    /**
+     * Segunda puerta, después de la aprobación del dispositivo: el estado de
+     * la licencia (periodo free vencido, transferencia pendiente, bloqueo por
+     * intentos agotados).
+     *
+     * Si no se puede leer el estado se concede el acceso: el dispositivo ya
+     * pasó la verificación de aprobación contra Supabase, así que un fallo
+     * puntual al leer la licencia no es motivo para expulsarlo. El chequeo se
+     * repite en cada arranque.
+     */
+    private suspend fun evaluateLicense(): DeviceAccessDecision {
+        val license = deviceRoleRepository.ownLicenseState() ?: return DeviceAccessDecision.Allowed
+
+        if (license.status == LicenseStatus.BLOCKED) {
+            return DeviceAccessDecision.LicenseBlocked(license)
+        }
+
+        val freeDays = deviceRoleRepository.freePeriodDays()
+
+        // Un dispositivo aprobado como tal pero sin ciclo de licencia iniciado
+        // (fila anterior a la migración, o recién desbloqueado) se deja pasar:
+        // el periodo free arranca al canjear el código, y forzar aquí una
+        // pantalla de pago a alguien que nunca tuvo prueba sería un cambio de
+        // reglas retroactivo para las instalaciones que ya existen.
+        if (license.status == LicenseStatus.NONE) return DeviceAccessDecision.Allowed
+
+        if (license.allowsAccess(freeDays)) return DeviceAccessDecision.Allowed
+
+        return DeviceAccessDecision.TransferRequired(license, freeDays)
     }
 }

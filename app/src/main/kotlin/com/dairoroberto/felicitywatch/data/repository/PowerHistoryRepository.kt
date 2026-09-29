@@ -64,17 +64,17 @@ class PowerHistoryRepository @Inject constructor(
         // estimación de Factura tengan margen razonable sin crecer sin límite.
         dao.deleteOlderThan(now.minus(Duration.ofDays(RETENTION_DAYS)).toEpochMilli())
 
-        // Espejo en Supabase, solo si ESTE dispositivo es el master de la
-        // cuenta (modelo master/cliente, guía) Y ya migró su historial con
-        // la sincronización activada. Un cliente nunca debe escribir en
-        // power_readings — solo la master es la fuente de verdad remota; el
-        // check de isMasterDevice aquí es una defensa adicional del lado
-        // del cliente, además de la protección real que debe vivir en la
-        // política RLS de Supabase. Nunca debe poder tumbar el guardado
-        // local: sin red, con Supabase caído, o con la tabla aún sin crear,
-        // esto simplemente se salta en silencio y la próxima lectura lo
-        // vuelve a intentar.
-        if (appPreferences.isMasterDevice.first() && appPreferences.supabaseSyncEnabled.first()) {
+        // Espejo en Supabase, si este dispositivo ya migró su historial con
+        // la sincronización activada — master o cliente por igual: cada uno
+        // sube con SU PROPIO device_id (ver SupabaseSyncRepository.pushReading),
+        // así que un cliente sincronizando nunca puede pisar ni mezclarse con
+        // las filas de otro dispositivo. Esto habilita que la master consulte
+        // los datos de un cliente puntual (pestaña Clientes) sin que nadie
+        // suba credenciales de FSolar a la nube. Nunca debe poder tumbar el
+        // guardado local: sin red, con Supabase caído, o con la tabla aún sin
+        // crear, esto simplemente se salta en silencio y la próxima lectura
+        // lo vuelve a intentar.
+        if (appPreferences.supabaseSyncEnabled.first()) {
             try {
                 supabaseSyncRepository.pushReading(reading)
             } catch (_: Exception) {

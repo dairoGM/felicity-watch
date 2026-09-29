@@ -5,10 +5,12 @@ import androidx.lifecycle.viewModelScope
 import com.dairoroberto.felicitywatch.data.local.AppPreferences
 import com.dairoroberto.felicitywatch.data.local.CredentialsStore
 import com.dairoroberto.felicitywatch.domain.usecase.DeviceAccessDecision
+import com.dairoroberto.felicitywatch.domain.model.LicenseState
 import com.dairoroberto.felicitywatch.domain.usecase.EvaluateDeviceApprovalUseCase
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.drop
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import javax.inject.Inject
@@ -17,14 +19,26 @@ import javax.inject.Inject
 sealed class DeviceAccessState {
     data object Checking : DeviceAccessState()
     data object Allowed : DeviceAccessState()
+
+    /** Falta la aprobación del dispositivo: debe canjear un código. */
     data object Blocked : DeviceAccessState()
+
+    /** Venció el periodo free: debe declarar el ID de su transferencia. */
+    data class TransferRequired(
+        val license: LicenseState,
+        val freePeriodDays: Int
+    ) : DeviceAccessState()
+
+    /** Agotó los intentos de validación; solo el master lo desbloquea. */
+    data class LicenseBlocked(val license: LicenseState) : DeviceAccessState()
 }
 
 @HiltViewModel
 class RootViewModel @Inject constructor(
     private val credentialsStore: CredentialsStore,
     private val evaluateDeviceApprovalUseCase: EvaluateDeviceApprovalUseCase,
-    private val appPreferences: AppPreferences
+    private val appPreferences: AppPreferences,
+    private val stateHolder: com.dairoroberto.felicitywatch.service.MonitoringStateHolder
 ) : ViewModel() {
 
     private val _onboardingCompleted = MutableStateFlow(credentialsStore.hasFsolarCredentials())
@@ -65,6 +79,24 @@ class RootViewModel @Inject constructor(
                 }
             }
         }
+
+        // El flag de arriba solo cubre la REVOCACIÓN del dispositivo. El
+        // vencimiento de la licencia no escribe ningún flag, así que el ciclo
+        // de monitoreo emite esta señal al detectarlo y aquí se re-evalúa: es
+        // lo que hace que el cliente pase solo a la pantalla de transferencia,
+        // sin tener que cerrar y reabrir la app.
+        //
+        // Se re-evalúa en vez de fijar un estado concreto porque la señal no
+        // dice CUÁL es el estado nuevo (pedir transferencia, o bloqueado por
+        // intentos agotados); eso lo resuelve EvaluateDeviceApprovalUseCase.
+        viewModelScope.launch {
+            stateHolder.accessRevalidationTick
+                .drop(1) // el valor inicial no es un evento
+                .collect {
+                    if (appPreferences.isMasterDevice.first()) return@collect
+                    checkDeviceAccess(showCheckingState = false)
+                }
+        }
     }
 
     /**
@@ -77,9 +109,13 @@ class RootViewModel @Inject constructor(
     fun checkDeviceAccess(showCheckingState: Boolean = true) {
         viewModelScope.launch {
             if (showCheckingState) _deviceAccessState.value = DeviceAccessState.Checking
-            _deviceAccessState.value = when (evaluateDeviceApprovalUseCase.evaluate()) {
+            _deviceAccessState.value = when (val decision = evaluateDeviceApprovalUseCase.evaluate()) {
                 DeviceAccessDecision.Allowed -> DeviceAccessState.Allowed
                 DeviceAccessDecision.Blocked -> DeviceAccessState.Blocked
+                is DeviceAccessDecision.TransferRequired ->
+                    DeviceAccessState.TransferRequired(decision.license, decision.freePeriodDays)
+                is DeviceAccessDecision.LicenseBlocked ->
+                    DeviceAccessState.LicenseBlocked(decision.license)
             }
         }
     }

@@ -6,6 +6,9 @@ import com.dairoroberto.felicitywatch.data.remote.dto.AccountDeviceApprovalDto
 import com.dairoroberto.felicitywatch.data.remote.dto.AccountDeviceDto
 import com.dairoroberto.felicitywatch.data.remote.dto.AccountDeviceStatusDto
 import com.dairoroberto.felicitywatch.data.remote.dto.DesktopPairingDto
+import com.dairoroberto.felicitywatch.domain.model.LicenseState
+import com.dairoroberto.felicitywatch.domain.model.LicenseStatus
+import com.dairoroberto.felicitywatch.domain.model.MAX_REJECTED_ATTEMPTS
 import kotlinx.coroutines.flow.first
 import java.time.Instant
 import java.time.format.DateTimeFormatter
@@ -39,8 +42,16 @@ data class AccountDeviceInfo(
     val revoked: Boolean,
     val latitude: Double? = null,
     val longitude: Double? = null,
-    val locationUpdatedAt: Instant? = null
+    val locationUpdatedAt: Instant? = null,
+    /** Estado de licencia (periodo free / transferencia). Ver [LicenseState]. */
+    val license: LicenseState = LicenseState(LicenseStatus.NONE)
 )
+
+/** Días de prueba que se asumen cuando no se puede leer la configuración del
+ * master (sin red, o la migración de licenciamiento todavía sin aplicar). Se
+ * prefiere un valor permisivo: un error de infraestructura no debe expulsar a
+ * un cliente que está en su periodo legítimo. */
+const val DEFAULT_FREE_PERIOD_DAYS = 7
 
 /** Un código de emparejamiento recién generado, con su momento de expiración
  * — para que la UI pueda mostrar una cuenta regresiva en vez de un PIN que
@@ -172,8 +183,102 @@ class DeviceRoleRepository @Inject constructor(
         )
         if (!approveResponse.isSuccessful) return false
 
+        licenseSetupError = startFreePeriodIfFirstTime(deviceId)
+
         appPreferences.setClientApprovalConfirmed(true)
         return true
+    }
+
+    /**
+     * Motivo por el que el último canje no pudo arrancar el periodo de prueba,
+     * o null si arrancó bien.
+     *
+     * El canje en sí tuvo éxito (el dispositivo quedó aprobado), así que no se
+     * devuelve como fallo del canje; pero sin esto el usuario entra a la app
+     * creyendo que todo está en orden mientras el master lo ve "sin licencia
+     * iniciada", sin ninguna pista de la causa.
+     */
+    @Volatile
+    var licenseSetupError: String? = null
+        private set
+
+    /**
+     * Arranca el periodo free al canjear un código, pero SOLO si este
+     * dispositivo nunca lo tuvo.
+     *
+     * La condición importa: tras un rechazo el cliente canjea un código nuevo,
+     * y si el free se repusiera ahí, cada rechazo regalaría otra prueba
+     * gratis — el ciclo nunca llegaría a exigir una transferencia válida. Por
+     * eso `free_started_at` se fija una vez y no se vuelve a tocar; los canjes
+     * posteriores solo restauran el acceso al dispositivo.
+     *
+     * No es best-effort silencioso: si el arranque falla, el cliente entra a
+     * la app sin licencia y en el master aparece como "sin licencia iniciada",
+     * sin que nada explique por qué. Devuelve el error para que la UI del
+     * canje lo muestre y se pueda corregir, en vez de dejar un dispositivo en
+     * un estado que nadie sabe reparar.
+     */
+    private suspend fun startFreePeriodIfFirstTime(deviceId: String): String? {
+        try {
+            val lookup = api.getAccountDevices(deviceIdFilter = "eq.$deviceId")
+            if (!lookup.isSuccessful) {
+                return "No se pudo leer el estado de licencia (HTTP ${lookup.code()})"
+            }
+            val current = lookup.body()?.firstOrNull()
+            val status = LicenseStatus.fromWire(current?.licenseStatus)
+
+            // Un dispositivo ya aprobado no vuelve a 'free' por canjear otro
+            // código: sería degradar una licencia válida.
+            if (status == LicenseStatus.APPROVED) return null
+
+            // Tras un rechazo el cliente canjea un código nuevo, y ese es
+            // justamente el reintento que el flujo contempla. Su periodo free
+            // NO se repone (ya lo consumió), pero hay que sacarlo de
+            // 'rejected': si se quedara en ese estado, la app le negaría el
+            // acceso sin darle siquiera la pantalla para declarar la
+            // transferencia nueva — el reintento sería imposible.
+            //
+            // Queda en 'free' con su free_started_at original, que al estar
+            // vencido lo manda directo a la pantalla de transferencia.
+            //
+            // Mismo caso para un cliente que el master desbloqueó (queda en
+            // 'none' con su free_started_at intacto): sin esto se quedaría en
+            // 'none', que el chequeo de acceso deja pasar, y tendría la app
+            // gratis sin validar nada.
+            if (status == LicenseStatus.REJECTED ||
+                (status == LicenseStatus.NONE && current?.freeStartedAt != null)
+            ) {
+                val reactivate = api.updateAccountDevice(
+                    deviceIdFilter = "eq.$deviceId",
+                    prefer = "return=minimal",
+                    updates = mapOf("license_status" to LicenseStatus.FREE.wireValue)
+                )
+                return if (reactivate.isSuccessful) null
+                else "No se pudo reactivar la licencia (HTTP ${reactivate.code()})"
+            }
+
+            // Ya está en free con su periodo corriendo: no hay nada que hacer.
+            if (current?.freeStartedAt != null) return null
+
+            val start = api.updateAccountDevice(
+                deviceIdFilter = "eq.$deviceId",
+                prefer = "return=minimal",
+                updates = mapOf(
+                    "license_status" to LicenseStatus.FREE.wireValue,
+                    "free_started_at" to DateTimeFormatter.ISO_INSTANT.format(Instant.now())
+                )
+            )
+            // Un 400 aquí casi siempre significa que 001_licensing.sql no está
+            // aplicado (las columnas no existen). Se dice explícito: el
+            // síntoma —"sin licencia iniciada" en el master— no apunta por sí
+            // solo a una migración faltante.
+            return if (start.isSuccessful) null else {
+                "No se pudo iniciar el periodo de prueba (HTTP ${start.code()}). " +
+                    "Verifica que la migración 001_licensing.sql esté aplicada en Supabase."
+            }
+        } catch (e: Exception) {
+            return "No se pudo iniciar el periodo de prueba: ${e.message ?: "error de red"}"
+        }
     }
 
     /**
@@ -218,8 +323,181 @@ class DeviceRoleRepository @Inject constructor(
         revoked = revoked,
         latitude = latitude,
         longitude = longitude,
-        locationUpdatedAt = locationUpdatedAt?.let(Instant::parse)
+        locationUpdatedAt = locationUpdatedAt?.let(Instant::parse),
+        license = LicenseState(
+            status = LicenseStatus.fromWire(licenseStatus),
+            freeStartedAt = freeStartedAt?.let(Instant::parse),
+            transferReference = transferReference,
+            transferSubmittedAt = transferSubmittedAt?.let(Instant::parse),
+            decidedAt = licenseDecidedAt?.let(Instant::parse),
+            rejectedAttempts = rejectedAttempts ?: 0,
+            rejectReason = licenseRejectReason
+        )
     )
+
+    // ------------------------------------------------------------------
+    // Licenciamiento: periodo free + validación de transferencia
+    // ------------------------------------------------------------------
+
+    /**
+     * Días de periodo free configurados en el master. Ante cualquier fallo
+     * devuelve [DEFAULT_FREE_PERIOD_DAYS] en vez de null: este valor decide si
+     * un cliente conserva el acceso, y quedarse sin él por un error de red
+     * expulsaría a alguien que está en su prueba legítima.
+     */
+    suspend fun freePeriodDays(): Int {
+        return try {
+            val response = api.getAccountSettings()
+            if (!response.isSuccessful) return DEFAULT_FREE_PERIOD_DAYS
+            response.body()?.firstOrNull()?.freePeriodDays ?: DEFAULT_FREE_PERIOD_DAYS
+        } catch (e: Exception) {
+            DEFAULT_FREE_PERIOD_DAYS
+        }
+    }
+
+    /** Cambia los días de periodo free (solo master). */
+    suspend fun setFreePeriodDays(days: Int): Boolean {
+        val response = api.updateAccountSettings(
+            updates = mapOf(
+                "free_period_days" to days.coerceIn(0, 365),
+                "updated_at" to DateTimeFormatter.ISO_INSTANT.format(Instant.now())
+            )
+        )
+        return response.isSuccessful
+    }
+
+    /** Estado de licencia de ESTE dispositivo, o null si no se pudo consultar. */
+    suspend fun ownLicenseState(): LicenseState? {
+        val deviceId = appPreferences.supabaseDeviceId()
+        return try {
+            val response = api.getAccountDevices(deviceIdFilter = "eq.$deviceId")
+            if (!response.isSuccessful) return null
+            response.body()?.firstOrNull()?.toInfo()?.license
+        } catch (e: Exception) {
+            null
+        }
+    }
+
+    /**
+     * Declara el ID de la transferencia y deja este dispositivo pendiente de
+     * validación por el master.
+     *
+     * No toca `rejected_attempts`: el contador lo mueve el master al decidir,
+     * que es quien sabe si el intento fue fallido. Contarlo aquí penalizaría
+     * al cliente por el solo hecho de enviar.
+     */
+    suspend fun submitTransferReference(reference: String): Boolean {
+        val deviceId = appPreferences.supabaseDeviceId()
+        val response = api.updateAccountDevice(
+            deviceIdFilter = "eq.$deviceId",
+            prefer = "return=minimal",
+            updates = mapOf(
+                "license_status" to LicenseStatus.PENDING.wireValue,
+                "transfer_reference" to reference.trim(),
+                "transfer_submitted_at" to DateTimeFormatter.ISO_INSTANT.format(Instant.now()),
+                // Se limpia la decisión anterior: lo que hay ahora es una
+                // transferencia nueva esperando, no el rechazo de la pasada.
+                "license_decided_at" to null,
+                "license_reject_reason" to null
+            )
+        )
+        return response.isSuccessful
+    }
+
+    /** Aprueba la transferencia: acceso indefinido y contador de intentos a 0. */
+    suspend fun approveTransfer(deviceId: String): Boolean {
+        val response = api.updateAccountDevice(
+            deviceIdFilter = "eq.$deviceId",
+            prefer = "return=minimal",
+            updates = mapOf(
+                "license_status" to LicenseStatus.APPROVED.wireValue,
+                "license_decided_at" to DateTimeFormatter.ISO_INSTANT.format(Instant.now()),
+                "license_reject_reason" to null,
+                // El contador mide rechazos SEGUIDOS: una aprobación cierra el
+                // ciclo, así que un rechazo futuro vuelve a empezar de 1.
+                "rejected_attempts" to 0
+            )
+        )
+        return response.isSuccessful
+    }
+
+    /**
+     * Rechaza la transferencia. Suma un intento y, si con este se alcanzan
+     * [MAX_REJECTED_ATTEMPTS], deja el dispositivo bloqueado.
+     *
+     * [currentAttempts] viene del listado que el master ya tiene cargado. Hay
+     * una carrera teórica si dos masters rechazan a la vez (el segundo pisa el
+     * contador del primero), pero el modelo es de un solo master por cuenta y
+     * la alternativa —un RPC atómico en Postgres— es desproporcionada aquí.
+     */
+    suspend fun rejectTransfer(deviceId: String, currentAttempts: Int, reason: String?): Boolean {
+        val attempts = currentAttempts + 1
+        val blocked = attempts >= MAX_REJECTED_ATTEMPTS
+        val response = api.updateAccountDevice(
+            deviceIdFilter = "eq.$deviceId",
+            prefer = "return=minimal",
+            updates = mapOf(
+                "license_status" to
+                    (if (blocked) LicenseStatus.BLOCKED else LicenseStatus.REJECTED).wireValue,
+                "license_decided_at" to DateTimeFormatter.ISO_INSTANT.format(Instant.now()),
+                "license_reject_reason" to reason?.trim()?.ifBlank { null },
+                "rejected_attempts" to attempts,
+                // El comprobante rechazado se descarta: el próximo ciclo
+                // empieza con un código nuevo y una transferencia nueva.
+                "transfer_reference" to null,
+                "transfer_submitted_at" to null,
+                // Revocar la aprobación del dispositivo obliga a canjear un
+                // código nuevo, que es justamente lo que pide el flujo tras un
+                // rechazo. Sin esto el cliente seguiría "aprobado" como
+                // dispositivo y solo cambiaría su estado de licencia.
+                "revoked" to true
+            )
+        )
+        return response.isSuccessful
+    }
+
+    /**
+     * Arranca el periodo de prueba de un cliente desde el master.
+     *
+     * Red de seguridad para un cliente que quedó en 'none' porque su canje no
+     * pudo iniciar la licencia (p. ej. canjeó antes de que la migración
+     * estuviera aplicada). Sin esto, la única salida sería editar la fila a
+     * mano en Supabase.
+     */
+    suspend fun startFreePeriodFor(deviceId: String): Boolean {
+        val response = api.updateAccountDevice(
+            deviceIdFilter = "eq.$deviceId",
+            prefer = "return=minimal",
+            updates = mapOf(
+                "license_status" to LicenseStatus.FREE.wireValue,
+                "free_started_at" to DateTimeFormatter.ISO_INSTANT.format(Instant.now())
+            )
+        )
+        return response.isSuccessful
+    }
+
+    /**
+     * Desbloquea a un cliente que agotó sus intentos: vuelve al inicio del
+     * ciclo (necesita código nuevo) con el contador en 0.
+     *
+     * No se le devuelve el periodo free — ya lo consumió — ni se le aprueba:
+     * el master desbloquea para que pueda REINTENTAR, no para dar acceso.
+     */
+    suspend fun unblockDevice(deviceId: String): Boolean {
+        val response = api.updateAccountDevice(
+            deviceIdFilter = "eq.$deviceId",
+            prefer = "return=minimal",
+            updates = mapOf(
+                "license_status" to LicenseStatus.NONE.wireValue,
+                "rejected_attempts" to 0,
+                "license_reject_reason" to null,
+                "license_decided_at" to DateTimeFormatter.ISO_INSTANT.format(Instant.now()),
+                "transfer_reference" to null,
+                "transfer_submitted_at" to null
+            )
+        )
+        return response.isSuccessful
+    }
 
     suspend fun renameDevice(deviceId: String, displayName: String) {
         api.updateAccountDevice(

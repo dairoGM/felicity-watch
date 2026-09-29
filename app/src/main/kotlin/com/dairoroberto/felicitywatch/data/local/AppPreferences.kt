@@ -195,9 +195,72 @@ class AppPreferences @Inject constructor(@ApplicationContext private val context
         context.dataStore.edit { it[KEY_CLIENT_APPROVAL_CONFIRMED] = confirmed }
     }
 
+    // ---- Notificaciones al master de solicitudes/transferencias de clientes ----
+    //
+    // Se persiste (no en memoria) qué ya se notificó, porque el servicio de
+    // monitoreo puede reiniciarse (Android lo mata y lo revive) y un cliente
+    // esperando aprobación no debe "desaparecer" del radar del master solo por
+    // eso — sin persistencia, tras un reinicio se perdería el registro y o
+    // bien se re-notificaría de más, o (con un flag mal inicializado) nunca
+    // más. Guardado como CSV de IDs: son pocas decenas de dispositivos como
+    // mucho, no amerita una tabla de Room aparte.
+
+    /** IDs de dispositivo (account_devices.device_id) para los que YA se avisó
+     * "solicitando acceso" — evita repetir el aviso en cada ciclo mientras el
+     * master no lo apruebe ni lo rechace. */
+    val notifiedPendingDeviceIds: Flow<Set<String>> = context.dataStore.data
+        .map { (it[KEY_NOTIFIED_PENDING_DEVICES] ?: "").toIdSet() }
+
+    suspend fun addNotifiedPendingDeviceId(deviceId: String) {
+        context.dataStore.edit { prefs ->
+            val current = (prefs[KEY_NOTIFIED_PENDING_DEVICES] ?: "").toIdSet()
+            prefs[KEY_NOTIFIED_PENDING_DEVICES] = (current + deviceId).joinToString(",")
+        }
+    }
+
+    /** Se llama al aprobar/rechazar: si ese dispositivo vuelve a pedir acceso
+     * más adelante (código nuevo), debe poder notificarse otra vez. */
+    suspend fun removeNotifiedPendingDeviceId(deviceId: String) {
+        context.dataStore.edit { prefs ->
+            val current = (prefs[KEY_NOTIFIED_PENDING_DEVICES] ?: "").toIdSet()
+            prefs[KEY_NOTIFIED_PENDING_DEVICES] = (current - deviceId).joinToString(",")
+        }
+    }
+
+    /**
+     * IDs de dispositivo para los que ya se avisó "transferencia por
+     * validar" — igual que arriba, pero para el envío de comprobante.
+     *
+     * Se marca por device_id y no por (device_id + referencia): si el mismo
+     * cliente reenvía otro ID tras ser rechazado, ya pasó por
+     * removeNotifiedTransferDeviceId (ver rejectTransfer/approveTransfer en
+     * DeviceRoleRepository), así que vuelve a notificarse sin ambigüedad.
+     */
+    val notifiedTransferDeviceIds: Flow<Set<String>> = context.dataStore.data
+        .map { (it[KEY_NOTIFIED_TRANSFER_DEVICES] ?: "").toIdSet() }
+
+    suspend fun addNotifiedTransferDeviceId(deviceId: String) {
+        context.dataStore.edit { prefs ->
+            val current = (prefs[KEY_NOTIFIED_TRANSFER_DEVICES] ?: "").toIdSet()
+            prefs[KEY_NOTIFIED_TRANSFER_DEVICES] = (current + deviceId).joinToString(",")
+        }
+    }
+
+    suspend fun removeNotifiedTransferDeviceId(deviceId: String) {
+        context.dataStore.edit { prefs ->
+            val current = (prefs[KEY_NOTIFIED_TRANSFER_DEVICES] ?: "").toIdSet()
+            prefs[KEY_NOTIFIED_TRANSFER_DEVICES] = (current - deviceId).joinToString(",")
+        }
+    }
+
+    private fun String.toIdSet(): Set<String> =
+        split(",").map { it.trim() }.filter { it.isNotEmpty() }.toSet()
+
     companion object {
         private val KEY_LAST_READING_MILLIS = longPreferencesKey("last_reading_epoch_millis")
         private val KEY_LAST_GRID_STATE = stringPreferencesKey("last_grid_state")
+        private val KEY_NOTIFIED_PENDING_DEVICES = stringPreferencesKey("notified_pending_devices")
+        private val KEY_NOTIFIED_TRANSFER_DEVICES = stringPreferencesKey("notified_transfer_devices")
         private val KEY_DARK_MODE = booleanPreferencesKey("dark_mode_enabled")
         private val KEY_POLLING_INTERVAL_SECONDS = intPreferencesKey("polling_interval_seconds")
         const val DEFAULT_POLLING_INTERVAL_SECONDS = 30

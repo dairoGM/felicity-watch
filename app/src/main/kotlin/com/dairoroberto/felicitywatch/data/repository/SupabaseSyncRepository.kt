@@ -92,6 +92,21 @@ class SupabaseSyncRepository @Inject constructor(
 
     suspend fun isMigrationDone(): Boolean = appPreferences.supabaseMigrationDone.first()
 
+    /**
+     * Últimas lecturas de un dispositivo puntual (master o cliente),
+     * ascendente por tiempo — para la pestaña Clientes (ver
+     * ClientDetailViewModel), que reconstruye PV/consumo/batería/tiempo
+     * con-sin corriente a partir de estas filas, igual que hace el Panel
+     * con el historial local propio.
+     */
+    suspend fun fetchReadingsForDevice(deviceId: String, limit: Int = 200): List<SupabasePowerReadingDto> {
+        val response = api.getReadingsForDevice(deviceIdFilter = "eq.$deviceId", limit = limit)
+        if (!response.isSuccessful) {
+            throw SupabaseSyncException(response.code(), response.errorBody()?.string())
+        }
+        return response.body().orEmpty().sortedBy { it.timestampEpochMillis }
+    }
+
     private fun PowerReadingEntity.toDto(deviceId: String) = SupabasePowerReadingDto(
         deviceId = deviceId,
         timestampEpochMillis = timestampEpochMillis,

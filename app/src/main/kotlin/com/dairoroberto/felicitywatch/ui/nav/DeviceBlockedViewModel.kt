@@ -33,6 +33,15 @@ class DeviceBlockedViewModel @Inject constructor(
             try {
                 val approved = deviceRoleRepository.redeemPairingPin(pin)
                 if (approved) {
+                    // El canje funcionó, pero el periodo de prueba pudo no
+                    // haber arrancado (típicamente, la migración de
+                    // licenciamiento sin aplicar en Supabase). Se muestra en
+                    // vez de dejar pasar en silencio a un cliente que el
+                    // master verá "sin licencia iniciada" sin saber por qué.
+                    deviceRoleRepository.licenseSetupError?.let {
+                        _errorMessage.value = it
+                        return@launch
+                    }
                     onApproved()
                 } else {
                     _errorMessage.value = "Código incorrecto, ya usado o expirado"

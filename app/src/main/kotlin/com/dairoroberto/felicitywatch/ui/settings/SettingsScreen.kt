@@ -37,6 +37,8 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Chat
 import androidx.compose.material.icons.filled.CloudSync
+import androidx.compose.material.icons.filled.CheckCircle
+import androidx.compose.material.icons.filled.ContentCopy
 import androidx.compose.material.icons.filled.DarkMode
 import androidx.compose.material.icons.filled.DeleteForever
 import androidx.compose.material.icons.filled.Logout
@@ -93,6 +95,8 @@ import androidx.compose.ui.unit.sp
 import androidx.hilt.navigation.compose.hiltViewModel
 import com.dairoroberto.felicitywatch.data.local.AppPreferences
 import com.dairoroberto.felicitywatch.data.repository.MigrationProgress
+import com.dairoroberto.felicitywatch.domain.model.LicenseStatus
+import com.dairoroberto.felicitywatch.domain.model.MAX_REJECTED_ATTEMPTS
 import com.dairoroberto.felicitywatch.ui.alerts.AlertsViewModel
 import com.dairoroberto.felicitywatch.ui.alerts.alertRuleItems
 import com.dairoroberto.felicitywatch.ui.components.ApiKeyField
@@ -124,6 +128,22 @@ fun SettingsScreen(
     onToggleDarkMode: (Boolean) -> Unit,
     onLoggedOut: () -> Unit
 ) {
+    // Detalle de un cliente puntual (PV/consumo/batería/red) — pantalla
+    // completa superpuesta en vez de una ruta de NavHost con argumentos,
+    // igual de simple para este caso ya que solo se abre desde dentro de
+    // esta misma pantalla (pestaña Clientes) y nunca por deep link.
+    var clientDetailTarget by remember {
+        mutableStateOf<Pair<String, String?>?>(null)
+    }
+    clientDetailTarget?.let { (deviceId, displayName) ->
+        com.dairoroberto.felicitywatch.ui.clients.ClientDetailScreen(
+            deviceId = deviceId,
+            displayName = displayName,
+            onBack = { clientDetailTarget = null }
+        )
+        return
+    }
+
     val context = LocalContext.current
     val formState by viewModel.formState.collectAsState()
     val serviceRunning by viewModel.serviceRunning.collectAsState()
@@ -267,14 +287,15 @@ fun SettingsScreen(
         )
     }
 
-    // "Dispositivos" solo tiene sentido en la master (generar códigos de
+    // "Clientes" solo tiene sentido en la master (generar códigos de
     // acceso, administrar quién está registrado) — un cliente ni siquiera ve
     // la pestaña, no solo su contenido deshabilitado.
     val settingsTabs = if (isMasterDevice) {
-        BASE_SETTINGS_TABS.toMutableList().apply { add(2, "Dispositivos") }
+        BASE_SETTINGS_TABS.toMutableList().apply { add(2, "Clientes") }
     } else {
         BASE_SETTINGS_TABS
     }
+    var clientsShowListView by remember { mutableStateOf(true) }
 
     Scaffold(
         snackbarHost = { SnackbarHost(snackbarHostState) { ElegantSnackbar(it) } }
@@ -298,6 +319,24 @@ fun SettingsScreen(
                                 softWrap = false
                             )
                         }
+                    )
+                }
+            }
+
+            if (settingsTabs.getOrNull(selectedTab) == "Clientes") {
+                Row(
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 10.dp)
+                ) {
+                    FilterChip(
+                        selected = clientsShowListView,
+                        onClick = { clientsShowListView = true },
+                        label = { Text("Listado") }
+                    )
+                    FilterChip(
+                        selected = !clientsShowListView,
+                        onClick = { clientsShowListView = false },
+                        label = { Text("Configuración") }
                     )
                 }
             }
@@ -345,7 +384,13 @@ fun SettingsScreen(
                         },
                         viewModel = viewModel
                     )
-                    "Dispositivos" -> devicesTab(viewModel = viewModel)
+                    "Clientes" -> devicesTab(
+                        viewModel = viewModel,
+                        showListView = clientsShowListView,
+                        onOpenClientDetail = { deviceId, displayName ->
+                            clientDetailTarget = deviceId to displayName
+                        }
+                    )
                     "Diagnóstico" -> diagnosticsTab(
                         lastInverterRawJson = lastInverterRawJson,
                         lastBatteryRawJson = lastBatteryRawJson,
@@ -364,6 +409,52 @@ private fun LazyListScope.accountTab(
     viewModel: SettingsViewModel,
     onShowLogoutConfirm: () -> Unit
 ) {
+    item {
+        val colors = LocalFelicityColors.current
+        val isMaster by viewModel.isMasterDevice.collectAsState()
+        val ownLicense by viewModel.ownLicense.collectAsState()
+        LaunchedEffect(Unit) { viewModel.loadOwnLicense() }
+
+        // Solo para clientes: la master no tiene licencia que mostrar. Sin
+        // esta tarjeta, tras la aprobación el cliente solo recupera el
+        // acceso, sin ninguna confirmación de que su pago quedó validado.
+        if (!isMaster) {
+            val license = ownLicense
+            if (license != null && license.status == LicenseStatus.APPROVED) {
+                val dateFormatter = remember {
+                    java.time.format.DateTimeFormatter
+                        .ofPattern("d 'de' MMMM 'de' yyyy", java.util.Locale("es", "ES"))
+                        .withZone(java.time.ZoneId.systemDefault())
+                }
+                SectionCard(title = "Licencia") {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Icon(
+                            Icons.Default.CheckCircle,
+                            contentDescription = null,
+                            tint = colors.green,
+                            modifier = Modifier.size(20.dp)
+                        )
+                        Column(Modifier.padding(start = 10.dp)) {
+                            Text(
+                                "Validada · acceso indefinido",
+                                style = MaterialTheme.typography.bodyMedium,
+                                fontWeight = FontWeight.Medium,
+                                color = colors.textHi
+                            )
+                            license.decidedAt?.let {
+                                Text(
+                                    "Desde el ${dateFormatter.format(it)}",
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = colors.textLow
+                                )
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
     item {
         SectionCard(title = "Cuenta FSolar") {
             EmailField(value = formState.fsolarUsername, onValueChange = viewModel::onUsernameChange)
@@ -1055,7 +1146,6 @@ private fun LazyListScope.systemTab(
     item {
         val colors = LocalFelicityColors.current
         val isMaster by viewModel.isMasterDevice.collectAsState()
-        if (!isMaster) return@item
 
         val migrationDone by viewModel.supabaseMigrationDone.collectAsState()
         val syncEnabled by viewModel.supabaseSyncEnabled.collectAsState()
@@ -1065,8 +1155,14 @@ private fun LazyListScope.systemTab(
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Icon(Icons.Default.CloudSync, contentDescription = null, tint = colors.accent)
                 Text(
-                    "Respalda tu historial en la nube (Supabase) para poder consultarlo desde otro " +
-                        "dispositivo. El guardado local sigue funcionando igual, con o sin conexión.",
+                    if (isMaster) {
+                        "Respalda tu historial en la nube (Supabase) para poder consultarlo desde otro " +
+                            "dispositivo. El guardado local sigue funcionando igual, con o sin conexión."
+                    } else {
+                        "Activa esto para que el dispositivo principal pueda ver tu generación solar, " +
+                            "consumo y batería en la pestaña Clientes. El guardado local sigue " +
+                            "funcionando igual, con o sin conexión."
+                    },
                     style = MaterialTheme.typography.bodySmall,
                     color = colors.textMid,
                     modifier = Modifier.padding(start = 8.dp)
@@ -1133,18 +1229,26 @@ private fun LazyListScope.systemTab(
 }
 
 /**
- * Pestaña "Dispositivos" — solo tiene sentido en la master (el ítem de la
+ * Pestaña "Clientes" — solo tiene sentido en la master (el ítem de la
  * TabRow ya se oculta por completo para un cliente, ver [SettingsScreen]):
  * marcar/confirmar el rol de este dispositivo, generar códigos de acceso
  * (celular cliente o escritorio) y administrar los dispositivos registrados.
  *
- * El listado va PRIMERO: es lo que se consulta día a día (quién está
- * conectado, revocar/renombrar/eliminar), mientras que generar un código o
- * cambiar el rol de este teléfono son acciones puntuales — antes quedaban
- * arriba y el listado al final, obligando a bajar por 3 tarjetas de
- * configuración para ver algo tan básico como quién está registrado.
+ * Tiene dos vistas, elegidas con [showListView]:
+ * - Listado y gestión: quién está registrado, ver sus datos en detalle,
+ *   renombrar/revocar/eliminar — lo que se consulta día a día.
+ * - Configuración: rol de este dispositivo, período de prueba, generar
+ *   código para un celular o PIN para escritorio — acciones puntuales.
+ * Antes vivían todas mezcladas en una sola pestaña con el listado al final,
+ * obligando a bajar por varias tarjetas de configuración para ver algo tan
+ * básico como quién está registrado.
  */
-private fun LazyListScope.devicesTab(viewModel: SettingsViewModel) {
+private fun LazyListScope.devicesTab(
+    viewModel: SettingsViewModel,
+    showListView: Boolean,
+    onOpenClientDetail: (deviceId: String, displayName: String?) -> Unit
+) {
+    if (showListView) {
     item {
         val colors = LocalFelicityColors.current
         val isMaster by viewModel.isMasterDevice.collectAsState()
@@ -1169,6 +1273,10 @@ private fun LazyListScope.devicesTab(viewModel: SettingsViewModel) {
             DeviceMapDialog(devices = devices, onDismiss = { showMap = false })
         }
 
+        // El vencimiento del periodo free se calcula con los días vigentes, que
+        // vive en el ViewModel — no en la fila de cada dispositivo.
+        val devicesFreePeriodDays by viewModel.freePeriodDays.collectAsState()
+
         SectionCard(title = "Dispositivos registrados") {
             if (loadingDevices) {
                 LinearProgressIndicator(modifier = Modifier.fillMaxWidth())
@@ -1191,15 +1299,29 @@ private fun LazyListScope.devicesTab(viewModel: SettingsViewModel) {
                     AccountDeviceRow(
                         device = device,
                         colors = colors,
+                        freePeriodDays = devicesFreePeriodDays,
                         onRename = { name -> viewModel.renameDevice(device.deviceId, name) },
                         onRevoke = { viewModel.revokeDevice(device.deviceId) },
-                        onDelete = { viewModel.deleteDevice(device.deviceId) }
+                        onDelete = { viewModel.deleteDevice(device.deviceId) },
+                        onApproveTransfer = { viewModel.approveTransfer(device.deviceId) },
+                        onRejectTransfer = { reason ->
+                            viewModel.rejectTransfer(
+                                device.deviceId,
+                                device.license.rejectedAttempts,
+                                reason
+                            )
+                        },
+                        onUnblock = { viewModel.unblockDevice(device.deviceId) },
+                        onStartTrial = { viewModel.startFreePeriodFor(device.deviceId) },
+                        onOpenDetail = { onOpenClientDetail(device.deviceId, device.displayName) }
                     )
                 }
             }
         }
     }
+    } // showListView
 
+    if (!showListView) {
     item {
         val colors = LocalFelicityColors.current
         val isMaster by viewModel.isMasterDevice.collectAsState()
@@ -1256,6 +1378,51 @@ private fun LazyListScope.devicesTab(viewModel: SettingsViewModel) {
         val isMaster by viewModel.isMasterDevice.collectAsState()
         if (!isMaster) return@item
 
+        val freeDays by viewModel.freePeriodDays.collectAsState()
+        LaunchedEffect(Unit) { viewModel.loadFreePeriodDays() }
+
+        SectionCard(title = "Periodo de prueba") {
+            Text(
+                "Días de acceso gratis que recibe un celular al canjear su primer código. " +
+                    "Al terminar, deberá enviar el ID de su transferencia para que la valides.",
+                style = MaterialTheme.typography.bodySmall,
+                color = colors.textMid
+            )
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                modifier = Modifier.fillMaxWidth().padding(top = SECTION_CONTENT_SPACING)
+            ) {
+                Text(
+                    "$freeDays ${if (freeDays == 1) "día" else "días"}",
+                    style = MaterialTheme.typography.titleMedium,
+                    fontWeight = FontWeight.Bold,
+                    color = colors.accent,
+                    modifier = Modifier.weight(1f)
+                )
+                TextButton(
+                    onClick = { viewModel.setFreePeriodDays((freeDays - 1).coerceAtLeast(0)) },
+                    enabled = freeDays > 0
+                ) { Text("−") }
+                TextButton(
+                    onClick = { viewModel.setFreePeriodDays((freeDays + 1).coerceAtMost(365)) },
+                    enabled = freeDays < 365
+                ) { Text("+") }
+            }
+            Text(
+                "Cambiarlo afecta también a los clientes que ya están en prueba: su " +
+                    "vencimiento se recalcula sobre la fecha en que canjearon el código.",
+                style = MaterialTheme.typography.labelSmall,
+                color = colors.textLow,
+                modifier = Modifier.padding(top = 4.dp)
+            )
+        }
+    }
+
+    item {
+        val colors = LocalFelicityColors.current
+        val isMaster by viewModel.isMasterDevice.collectAsState()
+        if (!isMaster) return@item
+
         val generatingClientPin by viewModel.isGeneratingClientPin.collectAsState()
         val clientPin by viewModel.clientPairingPin.collectAsState()
 
@@ -1268,6 +1435,7 @@ private fun LazyListScope.devicesTab(viewModel: SettingsViewModel) {
             )
 
             if (clientPin != null) {
+                val clipboard = androidx.compose.ui.platform.LocalClipboardManager.current
                 Text(
                     clientPin!!.pin,
                     style = MaterialTheme.typography.displaySmall,
@@ -1282,11 +1450,25 @@ private fun LazyListScope.devicesTab(viewModel: SettingsViewModel) {
                     colors = colors,
                     modifier = Modifier.fillMaxWidth().padding(top = 4.dp)
                 )
+                // Al copiar se oculta el código y vuelve el botón de generar.
+                // Ojo: si el portapapeles se pisa antes de pegarlo, el código
+                // ya no se puede volver a ver y hay que generar otro (el
+                // anterior sigue siendo válido en Supabase hasta que expire,
+                // pero nadie lo conoce).
+                ActionButton(
+                    text = "Copiar código",
+                    icon = Icons.Default.ContentCopy,
+                    onClick = {
+                        clipboard.setText(androidx.compose.ui.text.AnnotatedString(clientPin!!.pin))
+                        viewModel.clearClientPairingPin()
+                    },
+                    modifier = Modifier.padding(top = SECTION_CONTENT_SPACING)
+                )
                 ActionButton(
                     text = "Generar otro código",
                     outlined = true,
                     onClick = { viewModel.generateClientPairingPin() },
-                    modifier = Modifier.padding(top = SECTION_CONTENT_SPACING)
+                    modifier = Modifier.padding(top = 8.dp)
                 )
             } else {
                 ActionButton(
@@ -1361,6 +1543,7 @@ private fun LazyListScope.devicesTab(viewModel: SettingsViewModel) {
             }
         }
     }
+    } // !showListView
 
 }
 
@@ -1565,14 +1748,61 @@ private fun formatLastSeen(instant: java.time.Instant): String {
 private fun AccountDeviceRow(
     device: com.dairoroberto.felicitywatch.data.repository.AccountDeviceInfo,
     colors: com.dairoroberto.felicitywatch.ui.theme.FelicitySemanticColors,
+    freePeriodDays: Int,
     onRename: (String) -> Unit,
     onRevoke: () -> Unit,
-    onDelete: () -> Unit
+    onDelete: () -> Unit,
+    onApproveTransfer: () -> Unit,
+    onRejectTransfer: (String?) -> Unit,
+    onUnblock: () -> Unit,
+    onStartTrial: () -> Unit,
+    onOpenDetail: () -> Unit
 ) {
     var editingName by remember(device.deviceId) { mutableStateOf(false) }
     var nameInput by remember(device.deviceId) { mutableStateOf(device.displayName ?: "") }
     var showRevokeConfirm by remember { mutableStateOf(false) }
     var showDeleteConfirm by remember { mutableStateOf(false) }
+    var showRejectDialog by remember { mutableStateOf(false) }
+    var rejectReason by remember(device.deviceId) { mutableStateOf("") }
+
+    if (showRejectDialog) {
+        val willBlock = device.license.rejectedAttempts + 1 >= MAX_REJECTED_ATTEMPTS
+        AlertDialog(
+            onDismissRequest = { showRejectDialog = false },
+            title = { Text("¿Rechazar esta transferencia?") },
+            text = {
+                Column {
+                    Text(
+                        if (willBlock) {
+                            "Este es el intento $MAX_REJECTED_ATTEMPTS: el cliente quedará " +
+                                "BLOQUEADO y solo podrás desbloquearlo desde aquí."
+                        } else {
+                            "El cliente perderá el acceso y necesitará un código nuevo para " +
+                                "volver a intentarlo. Le quedarán " +
+                                "${MAX_REJECTED_ATTEMPTS - device.license.rejectedAttempts - 1} intentos."
+                        }
+                    )
+                    OutlinedTextField(
+                        value = rejectReason,
+                        onValueChange = { rejectReason = it },
+                        singleLine = true,
+                        label = { Text("Motivo (opcional)") },
+                        modifier = Modifier.fillMaxWidth().padding(top = 12.dp)
+                    )
+                }
+            },
+            confirmButton = {
+                TextButton(onClick = {
+                    showRejectDialog = false
+                    onRejectTransfer(rejectReason.ifBlank { null })
+                    rejectReason = ""
+                }) { Text("Rechazar", color = colors.error) }
+            },
+            dismissButton = {
+                TextButton(onClick = { showRejectDialog = false }) { Text("Cancelar") }
+            }
+        )
+    }
 
     if (showRevokeConfirm) {
         AlertDialog(
@@ -1653,6 +1883,12 @@ private fun AccountDeviceRow(
                         Icon(Icons.Default.MoreVert, contentDescription = "Más opciones", tint = colors.textLow)
                     }
                     DropdownMenu(expanded = showMenu, onDismissRequest = { showMenu = false }) {
+                        if (device.role != "master") {
+                            DropdownMenuItem(
+                                text = { Text("Ver detalle") },
+                                onClick = { showMenu = false; onOpenDetail() }
+                            )
+                        }
                         DropdownMenuItem(
                             text = { Text("Renombrar") },
                             onClick = { showMenu = false; editingName = true }
@@ -1672,6 +1908,103 @@ private fun AccountDeviceRow(
                     }
                 }
             }
+        }
+
+        // Estado de licencia — solo para clientes: la master no tiene periodo
+        // de prueba ni transferencia que validar.
+        if (device.role != "master") {
+            LicenseRow(
+                license = device.license,
+                freePeriodDays = freePeriodDays,
+                colors = colors,
+                onApprove = onApproveTransfer,
+                onReject = { showRejectDialog = true },
+                onUnblock = onUnblock,
+                onStartTrial = onStartTrial
+            )
+        }
+    }
+}
+
+/**
+ * Estado de licencia de un cliente y las acciones del master sobre él.
+ *
+ * La fecha que se muestra depende del estado, porque es la que importa en cada
+ * caso: en prueba, cuándo vence; pendiente, cuándo llegó la transferencia;
+ * decidido, cuándo se decidió.
+ */
+@Composable
+private fun LicenseRow(
+    license: com.dairoroberto.felicitywatch.domain.model.LicenseState,
+    freePeriodDays: Int,
+    colors: com.dairoroberto.felicitywatch.ui.theme.FelicitySemanticColors,
+    onApprove: () -> Unit,
+    onReject: () -> Unit,
+    onUnblock: () -> Unit,
+    onStartTrial: () -> Unit
+) {
+    val dateFormatter = remember {
+        java.time.format.DateTimeFormatter.ofPattern("d MMM yyyy, hh:mm a", java.util.Locale("es", "ES"))
+            .withZone(java.time.ZoneId.systemDefault())
+    }
+
+    val (label, tint) = when (license.status) {
+        LicenseStatus.NONE -> "Sin licencia iniciada" to colors.textLow
+        LicenseStatus.FREE -> {
+            val remaining = license.freeDaysRemaining(freePeriodDays)
+            if (license.isFreeExpired(freePeriodDays)) {
+                "Prueba vencida — esperando transferencia" to colors.error
+            } else {
+                "En prueba · $remaining ${if (remaining == 1) "día" else "días"} restantes" to colors.accent
+            }
+        }
+        LicenseStatus.PENDING -> "Transferencia por validar" to colors.chargeAccent
+        LicenseStatus.APPROVED -> "Validado · licencia indefinida" to colors.green
+        LicenseStatus.REJECTED ->
+            "Rechazado · intento ${license.rejectedAttempts} de $MAX_REJECTED_ATTEMPTS" to colors.error
+        LicenseStatus.BLOCKED -> "BLOQUEADO · agotó los intentos" to colors.error
+    }
+
+    // La fecha relevante cambia con el estado; se elige una sola para no
+    // llenar la fila de timestamps que el master tendría que interpretar.
+    val dateLine = when (license.status) {
+        LicenseStatus.FREE -> license.freeExpiresAt(freePeriodDays)?.let { "Vence el ${dateFormatter.format(it)}" }
+        LicenseStatus.PENDING -> license.transferSubmittedAt?.let { "Enviada el ${dateFormatter.format(it)}" }
+        LicenseStatus.APPROVED -> license.decidedAt?.let { "Validada el ${dateFormatter.format(it)}" }
+        LicenseStatus.REJECTED, LicenseStatus.BLOCKED ->
+            license.decidedAt?.let { "Rechazada el ${dateFormatter.format(it)}" }
+        LicenseStatus.NONE -> null
+    }
+
+    Column(Modifier.fillMaxWidth().padding(start = 18.dp, top = 6.dp)) {
+        Text(label, style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.Medium, color = tint)
+        dateLine?.let {
+            Text(it, style = MaterialTheme.typography.labelSmall, color = colors.textLow)
+        }
+        license.transferReference?.takeIf { it.isNotBlank() }?.let {
+            Text("ID: $it", style = MaterialTheme.typography.labelSmall, color = colors.textMid)
+        }
+
+        when (license.status) {
+            // Validar/rechazar solo tiene sentido con una transferencia
+            // esperando: fuera de ese estado no hay nada que decidir.
+            LicenseStatus.PENDING -> Row(modifier = Modifier.padding(top = 4.dp)) {
+                TextButton(onClick = onApprove) { Text("Aprobar", color = colors.green) }
+                TextButton(onClick = onReject) { Text("Rechazar", color = colors.error) }
+            }
+            LicenseStatus.BLOCKED -> TextButton(
+                onClick = onUnblock,
+                modifier = Modifier.padding(top = 4.dp)
+            ) { Text("Desbloquear", color = colors.accent) }
+            // El periodo de prueba arranca solo al canjear el código; este
+            // botón es la salida para un cliente cuyo canje no llegó a
+            // iniciarlo (p. ej. canjeó antes de aplicar la migración), que si
+            // no se quedaría sin licencia y sin forma de obtenerla.
+            LicenseStatus.NONE -> TextButton(
+                onClick = onStartTrial,
+                modifier = Modifier.padding(top = 4.dp)
+            ) { Text("Iniciar periodo de prueba", color = colors.accent) }
+            else -> Unit
         }
     }
 }

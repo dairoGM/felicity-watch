@@ -39,5 +39,21 @@ data class AccountDeviceStatusDto(
     @SerializedName("revoked") val revoked: Boolean,
     @SerializedName("latitude") val latitude: Double? = null,
     @SerializedName("longitude") val longitude: Double? = null,
-    @SerializedName("location_updated_at") val locationUpdatedAt: String? = null
+    @SerializedName("location_updated_at") val locationUpdatedAt: String? = null,
+    // Licenciamiento (migración 001_licensing.sql). Todos nullable con default
+    // para que una fila creada antes de esa migración siga deserializando.
+    @SerializedName("license_status") val licenseStatus: String? = null,
+    @SerializedName("free_started_at") val freeStartedAt: String? = null,
+    @SerializedName("transfer_reference") val transferReference: String? = null,
+    @SerializedName("transfer_submitted_at") val transferSubmittedAt: String? = null,
+    @SerializedName("license_decided_at") val licenseDecidedAt: String? = null,
+    @SerializedName("rejected_attempts") val rejectedAttempts: Int? = null,
+    @SerializedName("license_reject_reason") val licenseRejectReason: String? = null
+)
+
+/** Fila de `account_settings` — configuración de la cuenta que el master
+ * edita y los clientes solo leen. */
+data class AccountSettingsDto(
+    @SerializedName("id") val id: String = "default",
+    @SerializedName("free_period_days") val freePeriodDays: Int
 )

@@ -10,11 +10,15 @@ import com.dairoroberto.felicitywatch.data.repository.AccountDeviceInfo
 import com.dairoroberto.felicitywatch.data.repository.AlertEventRepository
 import com.dairoroberto.felicitywatch.data.repository.AlertRuleRepository
 import com.dairoroberto.felicitywatch.data.repository.ClaimMasterResult
+import com.dairoroberto.felicitywatch.data.repository.DEFAULT_FREE_PERIOD_DAYS
 import com.dairoroberto.felicitywatch.data.repository.DeviceRoleRepository
 import com.dairoroberto.felicitywatch.data.repository.FelicityRepository
 import com.dairoroberto.felicitywatch.data.repository.MigrationProgress
 import com.dairoroberto.felicitywatch.data.repository.PairingCode
 import com.dairoroberto.felicitywatch.data.repository.SupabaseSyncRepository
+import com.dairoroberto.felicitywatch.domain.model.LicenseState
+import com.dairoroberto.felicitywatch.domain.model.LicenseStatus
+import com.dairoroberto.felicitywatch.domain.model.MAX_REJECTED_ATTEMPTS
 import com.dairoroberto.felicitywatch.domain.usecase.RunMonitoringCycleUseCase
 import com.dairoroberto.felicitywatch.domain.usecase.UpdateDeviceLocationUseCase
 import com.dairoroberto.felicitywatch.domain.usecase.describeMonitoringError
@@ -479,6 +483,133 @@ class SettingsViewModel @Inject constructor(
     fun clearClientPairingPin() {
         clientPairingPinExpiryJob?.cancel()
         _clientPairingPin.value = null
+    }
+
+    // ---- Licenciamiento: periodo free y validación de transferencias ----
+
+    private val _freePeriodDays = MutableStateFlow(DEFAULT_FREE_PERIOD_DAYS)
+    /** Días de prueba que recibe un cliente al canjear su primer código. */
+    val freePeriodDays: StateFlow<Int> = _freePeriodDays
+
+    private val _isSavingFreePeriod = MutableStateFlow(false)
+    val isSavingFreePeriod: StateFlow<Boolean> = _isSavingFreePeriod
+
+    fun loadFreePeriodDays() {
+        viewModelScope.launch {
+            _freePeriodDays.value = deviceRoleRepository.freePeriodDays()
+        }
+    }
+
+    fun setFreePeriodDays(days: Int) {
+        if (_isSavingFreePeriod.value) return
+        viewModelScope.launch {
+            _isSavingFreePeriod.value = true
+            // Optimista: el control es un stepper y esperar al servidor entre
+            // toques lo haría sentir trabado. Si falla se revierte leyendo el
+            // valor real.
+            val previous = _freePeriodDays.value
+            _freePeriodDays.value = days
+            try {
+                if (!deviceRoleRepository.setFreePeriodDays(days)) {
+                    _freePeriodDays.value = previous
+                    emit("No se pudo guardar el periodo de prueba")
+                }
+            } catch (e: Exception) {
+                _freePeriodDays.value = previous
+                emit("No se pudo guardar: ${describeMonitoringError(e)}")
+            } finally {
+                _isSavingFreePeriod.value = false
+            }
+        }
+    }
+
+    /** Aprueba la transferencia de un cliente: acceso indefinido. */
+    fun approveTransfer(deviceId: String) {
+        viewModelScope.launch {
+            try {
+                if (deviceRoleRepository.approveTransfer(deviceId)) {
+                    emit("Transferencia aprobada")
+                    loadAccountDevices()
+                } else {
+                    emit("No se pudo aprobar la transferencia")
+                }
+            } catch (e: Exception) {
+                emit("No se pudo aprobar: ${describeMonitoringError(e)}")
+            }
+        }
+    }
+
+    /**
+     * Rechaza la transferencia. [currentAttempts] sale del listado ya cargado
+     * — el repositorio lo necesita para saber si este rechazo es el que
+     * bloquea al cliente.
+     */
+    fun rejectTransfer(deviceId: String, currentAttempts: Int, reason: String?) {
+        viewModelScope.launch {
+            try {
+                if (deviceRoleRepository.rejectTransfer(deviceId, currentAttempts, reason)) {
+                    val blocked = currentAttempts + 1 >= MAX_REJECTED_ATTEMPTS
+                    emit(
+                        if (blocked) "Transferencia rechazada — el cliente quedó bloqueado"
+                        else "Transferencia rechazada"
+                    )
+                    loadAccountDevices()
+                } else {
+                    emit("No se pudo rechazar la transferencia")
+                }
+            } catch (e: Exception) {
+                emit("No se pudo rechazar: ${describeMonitoringError(e)}")
+            }
+        }
+    }
+
+    /** Estado de licencia de ESTE dispositivo, para que un cliente pueda ver
+     * en Ajustes si su licencia está validada y desde cuándo — sin esto, tras
+     * la aprobación solo recupera el acceso, sin ninguna confirmación de que
+     * su pago quedó registrado. */
+    private val _ownLicense = MutableStateFlow<LicenseState?>(null)
+    val ownLicense: StateFlow<LicenseState?> = _ownLicense
+
+    fun loadOwnLicense() {
+        viewModelScope.launch {
+            if (appPreferences.isMasterDevice.first()) {
+                _ownLicense.value = null
+                return@launch
+            }
+            _ownLicense.value = deviceRoleRepository.ownLicenseState()
+        }
+    }
+
+    /** Arranca a mano el periodo de prueba de un cliente que quedó sin él. */
+    fun startFreePeriodFor(deviceId: String) {
+        viewModelScope.launch {
+            try {
+                if (deviceRoleRepository.startFreePeriodFor(deviceId)) {
+                    emit("Periodo de prueba iniciado")
+                    loadAccountDevices()
+                } else {
+                    emit("No se pudo iniciar el periodo de prueba")
+                }
+            } catch (e: Exception) {
+                emit("No se pudo iniciar: ${describeMonitoringError(e)}")
+            }
+        }
+    }
+
+    /** Devuelve al cliente la posibilidad de reintentar (no le da acceso). */
+    fun unblockDevice(deviceId: String) {
+        viewModelScope.launch {
+            try {
+                if (deviceRoleRepository.unblockDevice(deviceId)) {
+                    emit("Cliente desbloqueado — necesita un código nuevo")
+                    loadAccountDevices()
+                } else {
+                    emit("No se pudo desbloquear")
+                }
+            } catch (e: Exception) {
+                emit("No se pudo desbloquear: ${describeMonitoringError(e)}")
+            }
+        }
     }
 
     fun loadAccountDevices() {
