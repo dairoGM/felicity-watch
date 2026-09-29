@@ -64,18 +64,36 @@ class PowerHistoryRepository @Inject constructor(
         // estimación de Factura tengan margen razonable sin crecer sin límite.
         dao.deleteOlderThan(now.minus(Duration.ofDays(RETENTION_DAYS)).toEpochMilli())
 
-        // Espejo en Supabase, si este dispositivo ya migró su historial con
-        // la sincronización activada — master o cliente por igual: cada uno
-        // sube con SU PROPIO device_id (ver SupabaseSyncRepository.pushReading),
-        // así que un cliente sincronizando nunca puede pisar ni mezclarse con
-        // las filas de otro dispositivo. Esto habilita que la master consulte
-        // los datos de un cliente puntual (pestaña Clientes) sin que nadie
-        // suba credenciales de FSolar a la nube. Nunca debe poder tumbar el
-        // guardado local: sin red, con Supabase caído, o con la tabla aún sin
-        // crear, esto simplemente se salta en silencio y la próxima lectura
-        // lo vuelve a intentar.
-        if (appPreferences.supabaseSyncEnabled.first()) {
+        // Espejo en Supabase — cada dispositivo sube con SU PROPIO device_id
+        // (ver SupabaseSyncRepository.pushReading), así que nunca puede pisar
+        // ni mezclarse con las filas de otro. Esto habilita que la master
+        // consulte los datos de un cliente puntual (pestaña Clientes) sin
+        // que nadie suba credenciales de FSolar a la nube.
+        //
+        // Para un CLIENTE esto no es opcional: sin su historial en Supabase,
+        // la master no tiene forma de ver nada de él, así que se ignora
+        // supabaseSyncEnabled (que sigue siendo la preferencia real solo
+        // para la master, quien decide si respalda su propio historial). Un
+        // cliente no puede pausar esto — de lo contrario, un cliente que lo
+        // desactive quedaría invisible para la master sin que nadie se
+        // entere.
+        //
+        // Nunca debe poder tumbar el guardado local: sin red, con Supabase
+        // caído, o con la tabla aún sin crear, esto simplemente se salta en
+        // silencio y la próxima lectura lo vuelve a intentar.
+        val isMaster = appPreferences.isMasterDevice.first()
+        val shouldSync = if (isMaster) appPreferences.supabaseSyncEnabled.first() else true
+        if (shouldSync) {
             try {
+                // Un cliente nunca ve el botón "Migrar historial a la nube"
+                // (forzado, ver arriba) — si ya tenía lecturas locales de
+                // antes de convertirse en cliente sincronizado, esas quedarían
+                // sin subir para siempre si nadie dispara la migración una
+                // vez. Se hace aquí mismo, de forma transparente, la primera
+                // vez que se detecta sin migrar.
+                if (!isMaster && !appPreferences.supabaseMigrationDone.first()) {
+                    supabaseSyncRepository.migrateAll { _, _ -> }
+                }
                 supabaseSyncRepository.pushReading(reading)
             } catch (_: Exception) {
                 // Best-effort: la próxima lectura reintenta sola.
