@@ -570,6 +570,33 @@ class DeviceRoleRepository @Inject constructor(
         }
     }
 
+    /**
+     * true si ESTE dispositivo ya tiene una ubicación guardada en Supabase
+     * (columna `latitude` no nula) — consulta la fuente remota, no un
+     * estado local en memoria, porque Android puede matar el proceso en
+     * background en cualquier momento (documentado en
+     * MonitoringForegroundService) y un contador solo en memoria se pierde
+     * con cada reinicio. Usado por UpdateDeviceLocationUseCase para saber
+     * si debe ignorar su throttle normal e insistir en cada ciclo hasta
+     * lograr la primera captura.
+     *
+     * null si no se pudo determinar (sin red, Supabase caído) — quien llama
+     * decide qué asumir en ese caso.
+     */
+    suspend fun hasReportedLocationBefore(): Boolean? {
+        val deviceId = appPreferences.supabaseDeviceId()
+        return try {
+            val response = api.getAccountDevices(
+                select = "latitude",
+                deviceIdFilter = "eq.$deviceId"
+            )
+            if (!response.isSuccessful) return null
+            response.body()?.firstOrNull()?.latitude != null
+        } catch (e: Exception) {
+            null
+        }
+    }
+
     private companion object {
         /** Corto a propósito: es solo para el momento de conectar (la
          * persona lo ve en un dispositivo y lo escribe en el otro casi de

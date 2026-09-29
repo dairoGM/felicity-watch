@@ -128,22 +128,6 @@ fun SettingsScreen(
     onToggleDarkMode: (Boolean) -> Unit,
     onLoggedOut: () -> Unit
 ) {
-    // Detalle de un cliente puntual (PV/consumo/batería/red) — pantalla
-    // completa superpuesta en vez de una ruta de NavHost con argumentos,
-    // igual de simple para este caso ya que solo se abre desde dentro de
-    // esta misma pantalla (pestaña Clientes) y nunca por deep link.
-    var clientDetailTarget by remember {
-        mutableStateOf<Pair<String, String?>?>(null)
-    }
-    clientDetailTarget?.let { (deviceId, displayName) ->
-        com.dairoroberto.felicitywatch.ui.clients.ClientDetailScreen(
-            deviceId = deviceId,
-            displayName = displayName,
-            onBack = { clientDetailTarget = null }
-        )
-        return
-    }
-
     val context = LocalContext.current
     val formState by viewModel.formState.collectAsState()
     val serviceRunning by viewModel.serviceRunning.collectAsState()
@@ -287,15 +271,9 @@ fun SettingsScreen(
         )
     }
 
-    // "Clientes" solo tiene sentido en la master (generar códigos de
-    // acceso, administrar quién está registrado) — un cliente ni siquiera ve
-    // la pestaña, no solo su contenido deshabilitado.
-    val settingsTabs = if (isMasterDevice) {
-        BASE_SETTINGS_TABS.toMutableList().apply { add(2, "Clientes") }
-    } else {
-        BASE_SETTINGS_TABS
-    }
-    var clientsShowListView by remember { mutableStateOf(true) }
+    // La gestión de clientes se movió a su propia pantalla (Más > Clientes,
+    // ver ClientsScreen) — ya no es una pestaña más de Ajustes.
+    val settingsTabs = BASE_SETTINGS_TABS
 
     Scaffold(
         snackbarHost = { SnackbarHost(snackbarHostState) { ElegantSnackbar(it) } }
@@ -319,24 +297,6 @@ fun SettingsScreen(
                                 softWrap = false
                             )
                         }
-                    )
-                }
-            }
-
-            if (settingsTabs.getOrNull(selectedTab) == "Clientes") {
-                Row(
-                    horizontalArrangement = Arrangement.spacedBy(8.dp),
-                    modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 10.dp)
-                ) {
-                    FilterChip(
-                        selected = clientsShowListView,
-                        onClick = { clientsShowListView = true },
-                        label = { Text("Listado") }
-                    )
-                    FilterChip(
-                        selected = !clientsShowListView,
-                        onClick = { clientsShowListView = false },
-                        label = { Text("Configuración") }
                     )
                 }
             }
@@ -383,13 +343,6 @@ fun SettingsScreen(
                             )
                         },
                         viewModel = viewModel
-                    )
-                    "Clientes" -> devicesTab(
-                        viewModel = viewModel,
-                        showListView = clientsShowListView,
-                        onOpenClientDetail = { deviceId, displayName ->
-                            clientDetailTarget = deviceId to displayName
-                        }
                     )
                     "Diagnóstico" -> diagnosticsTab(
                         lastInverterRawJson = lastInverterRawJson,
@@ -1260,7 +1213,7 @@ private fun LazyListScope.systemTab(
  * obligando a bajar por varias tarjetas de configuración para ver algo tan
  * básico como quién está registrado.
  */
-private fun LazyListScope.devicesTab(
+internal fun LazyListScope.devicesTab(
     viewModel: SettingsViewModel,
     showListView: Boolean,
     onOpenClientDetail: (deviceId: String, displayName: String?) -> Unit

@@ -46,6 +46,8 @@ import com.dairoroberto.felicitywatch.ui.alerts.AlertsHostScreen
 import com.dairoroberto.felicitywatch.ui.appliances.AppliancesScreen
 import com.dairoroberto.felicitywatch.ui.billing.BillingScreen
 import com.dairoroberto.felicitywatch.ui.calculator.BatteryAutonomyCalculatorScreen
+import com.dairoroberto.felicitywatch.ui.clients.ClientDetailScreen
+import com.dairoroberto.felicitywatch.ui.clients.ClientsScreen
 import com.dairoroberto.felicitywatch.ui.dashboard.DashboardScreen
 import com.dairoroberto.felicitywatch.ui.devices.DevicesScreen
 import com.dairoroberto.felicitywatch.ui.more.MoreMenuItem
@@ -54,6 +56,8 @@ import com.dairoroberto.felicitywatch.ui.onboarding.OnboardingScreen
 import com.dairoroberto.felicitywatch.ui.report.ReportScreen
 import com.dairoroberto.felicitywatch.ui.settings.SettingsScreen
 import com.dairoroberto.felicitywatch.ui.theme.ThemeViewModel
+import java.net.URLDecoder
+import java.net.URLEncoder
 
 /**
  * Barra inferior fija a 4 destinos de uso diario; todo lo demás (Alertas,
@@ -74,6 +78,16 @@ private sealed class MoreDestination(val route: String) {
     data object Appliances : MoreDestination("appliances")
     data object Billing : MoreDestination("billing")
     data object Settings : MoreDestination("settings")
+    data object Clients : MoreDestination("clients")
+    // displayName va codificado en la URL de la ruta y puede ser null (sin
+    // nombre asignado aún) — "null" literal como sentinel, decodificado de
+    // vuelta a null en el composable de destino.
+    data object ClientDetail : MoreDestination("clientDetail/{deviceId}/{displayName}") {
+        fun buildRoute(deviceId: String, displayName: String?): String {
+            val encodedName = URLEncoder.encode(displayName ?: "null", "UTF-8")
+            return "clientDetail/$deviceId/$encodedName"
+        }
+    }
 }
 
 private val bottomDestinations = listOf(
@@ -153,6 +167,11 @@ fun FelicityWatchNavHost(
 
     val navController = rememberNavController()
     val darkModeEnabled by themeViewModel.darkModeEnabled.collectAsState()
+    // Compartido con ClientsScreen/SettingsScreen (mismo hiltViewModel sin
+    // scope de ruta) — solo se usa aquí para decidir si "Clientes" aparece
+    // en el menú Más, igual criterio que antes ocultaba la pestaña entera.
+    val settingsViewModelForMoreMenu: com.dairoroberto.felicitywatch.ui.settings.SettingsViewModel = hiltViewModel()
+    val isMasterDevice by settingsViewModelForMoreMenu.isMasterDevice.collectAsState()
 
     val backStackEntry by navController.currentBackStackEntryAsState()
     val currentRoute = backStackEntry?.destination?.route
@@ -231,7 +250,15 @@ fun FelicityWatchNavHost(
             composable(MainDestination.Report.route) { ReportScreen() }
             composable(MainDestination.More.route) {
                 MoreScreen(
-                    items = listOf(
+                    items = listOfNotNull(
+                        if (isMasterDevice) {
+                            MoreMenuItem(
+                                label = "Clientes",
+                                subtitle = "Códigos de acceso, listado y detalle de cada dispositivo",
+                                icon = Icons.Default.Memory,
+                                onClick = { navController.navigate(MoreDestination.Clients.route) { launchSingleTop = true } }
+                            )
+                        } else null,
                         MoreMenuItem(
                             label = "Historial de alertas",
                             subtitle = "Eventos disparados y notificaciones push recibidas",
@@ -274,6 +301,31 @@ fun FelicityWatchNavHost(
                     darkModeEnabled = darkModeEnabled,
                     onToggleDarkMode = themeViewModel::setDarkMode,
                     onLoggedOut = { rootViewModel.resetOnboarding() }
+                )
+            }
+            composable(MoreDestination.Clients.route) {
+                ClientsScreen(
+                    onOpenClientDetail = { deviceId, displayName ->
+                        navController.navigate(MoreDestination.ClientDetail.buildRoute(deviceId, displayName)) {
+                            launchSingleTop = true
+                        }
+                    }
+                )
+            }
+            composable(
+                route = MoreDestination.ClientDetail.route,
+                arguments = listOf(
+                    androidx.navigation.navArgument("deviceId") { type = androidx.navigation.NavType.StringType },
+                    androidx.navigation.navArgument("displayName") { type = androidx.navigation.NavType.StringType }
+                )
+            ) { backStackEntry ->
+                val deviceId = backStackEntry.arguments?.getString("deviceId").orEmpty()
+                val encodedName = backStackEntry.arguments?.getString("displayName").orEmpty()
+                val displayName = URLDecoder.decode(encodedName, "UTF-8").takeIf { it != "null" }
+                ClientDetailScreen(
+                    deviceId = deviceId,
+                    displayName = displayName,
+                    onBack = { navController.popBackStack() }
                 )
             }
         }

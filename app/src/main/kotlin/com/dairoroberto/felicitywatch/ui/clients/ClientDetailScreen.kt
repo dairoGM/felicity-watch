@@ -19,9 +19,7 @@ import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
-import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
@@ -55,26 +53,36 @@ fun ClientDetailScreen(
 
     LaunchedEffect(deviceId) { viewModel.load(deviceId) }
 
-    Scaffold(
-        topBar = {
-            TopAppBar(
-                title = { Text(displayName ?: "Dispositivo ${deviceId.take(8)}") },
-                navigationIcon = {
-                    IconButton(onClick = onBack) {
-                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Volver")
-                    }
-                }
+    // Sin Scaffold/TopAppBar propio: esta pantalla vive bajo el NavHost
+    // general (Más > Clientes > detalle), que ya trae su propia TopAppBar
+    // fija "Felicity Watch" — un segundo Scaffold aquí duplicaría la barra
+    // superior, mismo patrón que el resto de pantallas de "Más"
+    // (SettingsScreen, BillingScreen, etc. tampoco traen la suya). El botón
+    // "Volver" queda como una fila de cabecera dentro del contenido.
+    Column(Modifier.fillMaxSize()) {
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            modifier = Modifier.fillMaxWidth().padding(start = 4.dp, end = 16.dp, top = 8.dp)
+        ) {
+            IconButton(onClick = onBack) {
+                Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Volver")
+            }
+            Text(
+                displayName ?: "Dispositivo ${deviceId.take(8)}",
+                style = MaterialTheme.typography.titleMedium,
+                fontWeight = FontWeight.Bold,
+                color = colors.textHi
             )
         }
-    ) { padding ->
+
         when (val current = state) {
             is ClientDetailState.Loading -> Box(
-                Modifier.fillMaxSize().padding(padding),
+                Modifier.fillMaxSize(),
                 contentAlignment = Alignment.Center
             ) { CircularProgressIndicator() }
 
             is ClientDetailState.Error -> Box(
-                Modifier.fillMaxSize().padding(padding).padding(24.dp),
+                Modifier.fillMaxSize().padding(24.dp),
                 contentAlignment = Alignment.Center
             ) {
                 Text(
@@ -85,7 +93,7 @@ fun ClientDetailScreen(
             }
 
             is ClientDetailState.NoData -> Box(
-                Modifier.fillMaxSize().padding(padding).padding(24.dp),
+                Modifier.fillMaxSize().padding(24.dp),
                 contentAlignment = Alignment.Center
             ) {
                 Text(
@@ -97,7 +105,7 @@ fun ClientDetailScreen(
             }
 
             is ClientDetailState.Loaded -> LazyColumn(
-                modifier = Modifier.fillMaxSize().padding(padding),
+                modifier = Modifier.fillMaxSize(),
                 contentPadding = PaddingValues(16.dp),
                 verticalArrangement = Arrangement.spacedBy(12.dp)
             ) {
