@@ -2,7 +2,7 @@ package com.dairoroberto.felicitywatch.data.repository
 
 import com.dairoroberto.felicitywatch.data.local.AppPreferences
 import com.dairoroberto.felicitywatch.data.remote.SupabaseApiService
-import com.dairoroberto.felicitywatch.data.remote.dto.AccountDeviceEquipmentDto
+import com.dairoroberto.felicitywatch.data.remote.dto.AccountDeviceEquipmentUpsertDto
 import com.dairoroberto.felicitywatch.data.remote.dto.EquipmentDeviceDto
 import com.dairoroberto.felicitywatch.domain.model.DeviceInfo
 import com.dairoroberto.felicitywatch.domain.model.DeviceRole
@@ -45,7 +45,7 @@ class EquipmentRepository @Inject constructor(
         try {
             val response = api.upsertAccountDeviceEquipment(
                 equipment = listOf(
-                    AccountDeviceEquipmentDto(
+                    AccountDeviceEquipmentUpsertDto(
                         deviceId = deviceId,
                         devices = devices.map { it.toDto() }
                     )

@@ -3,6 +3,7 @@ package com.dairoroberto.felicitywatch.data.remote
 import com.dairoroberto.felicitywatch.data.remote.dto.AccountDeviceApprovalDto
 import com.dairoroberto.felicitywatch.data.remote.dto.AccountDeviceDto
 import com.dairoroberto.felicitywatch.data.remote.dto.AccountDeviceEquipmentDto
+import com.dairoroberto.felicitywatch.data.remote.dto.AccountDeviceEquipmentUpsertDto
 import com.dairoroberto.felicitywatch.data.remote.dto.AccountDeviceStatusDto
 import com.dairoroberto.felicitywatch.data.remote.dto.AccountSettingsDto
 import com.dairoroberto.felicitywatch.data.remote.dto.DesktopPairingDto
@@ -163,7 +164,7 @@ interface SupabaseApiService {
     suspend fun upsertAccountDeviceEquipment(
         @Query("on_conflict") onConflict: String = "device_id",
         @Header("Prefer") prefer: String = "resolution=merge-duplicates,return=minimal",
-        @Body equipment: List<AccountDeviceEquipmentDto>
+        @Body equipment: List<AccountDeviceEquipmentUpsertDto>
     ): Response<Unit>
 
     /** Equipos de UN dispositivo puntual — para la pestaña "Equipos" del

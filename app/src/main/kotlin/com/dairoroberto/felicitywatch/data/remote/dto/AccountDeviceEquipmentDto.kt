@@ -20,8 +20,23 @@ data class EquipmentDeviceDto(
     @SerializedName("rated_power_kw") val ratedPowerKw: Double?
 )
 
-/** Fila de `account_device_equipment` — un snapshot completo de los equipos
- * de un dispositivo puntual. */
+/**
+ * Payload del upsert — a propósito NO incluye `updated_at`: Gson serializa
+ * nulls (ver NetworkModule), así que si este campo existiera con valor
+ * null, el upsert mandaría `"updated_at": null` explícito en el body,
+ * pisando el `default now()` de la columna con un NULL literal y violando
+ * su `not null` (confirmado con un error real: HTTP 400, código 23502 "null
+ * value in column updated_at violates not-null constraint"). Mismo patrón
+ * de bug que ya se había resuelto antes para display_name en
+ * AccountDeviceApprovalDto.
+ */
+data class AccountDeviceEquipmentUpsertDto(
+    @SerializedName("device_id") val deviceId: String,
+    @SerializedName("devices_json") val devices: List<EquipmentDeviceDto>
+)
+
+/** Fila de `account_device_equipment` tal como se lee — incluye
+ * `updated_at`, útil para mostrar cuándo se sincronizó por última vez. */
 data class AccountDeviceEquipmentDto(
     @SerializedName("device_id") val deviceId: String,
     @SerializedName("devices_json") val devices: List<EquipmentDeviceDto>,
