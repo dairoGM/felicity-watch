@@ -1581,6 +1581,15 @@ private fun LazyListScope.diagnosticsTab(
                 onClick = { viewModel.copyDeviceListJsonToClipboard() },
                 modifier = Modifier.padding(top = SECTION_CONTENT_SPACING)
             )
+            val lastEquipmentError by viewModel.lastEquipmentError.collectAsState()
+            lastEquipmentError?.let { error ->
+                Text(
+                    "Último intento de sincronizar equipos falló: $error",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.error,
+                    modifier = Modifier.padding(top = SECTION_CONTENT_SPACING)
+                )
+            }
         }
     }
 

@@ -67,6 +67,7 @@ class SettingsViewModel @Inject constructor(
     private val supabaseSyncRepository: SupabaseSyncRepository,
     private val deviceRoleRepository: DeviceRoleRepository,
     private val updateDeviceLocationUseCase: UpdateDeviceLocationUseCase,
+    private val equipmentRepository: com.dairoroberto.felicitywatch.data.repository.EquipmentRepository,
     @ApplicationContext private val context: Context
 ) : ViewModel() {
 
@@ -74,6 +75,7 @@ class SettingsViewModel @Inject constructor(
     val lastInverterRawJson: StateFlow<String?> = stateHolder.lastInverterRawJson
     val lastBatteryRawJson: StateFlow<String?> = stateHolder.lastBatteryRawJson
     val lastLocationError: StateFlow<String?> = updateDeviceLocationUseCase.lastError
+    val lastEquipmentError: StateFlow<String?> = equipmentRepository.lastError
 
     private val _isLoadingDeviceList = MutableStateFlow(false)
     val isLoadingDeviceList: StateFlow<Boolean> = _isLoadingDeviceList
